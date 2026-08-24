@@ -1,0 +1,34 @@
+{
+  "name": "house-rental-management-system",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Private House Rental Management System for a 6-room property",
+  "scripts": {
+    "dev": "node scripts/start-dev.js",
+    "start:lan": "node scripts/start-dev.js",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f postgres",
+    "dev:backend": "cd backend && npm run start:dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build:backend": "cd backend && npm run build",
+    "build:frontend": "cd frontend && npm run build",
+    "test:backend": "cd backend && npm run test",
+    "test:e2e": "node scripts/test-e2e.js",
+    "test": "cd backend && npm run test",
+    "prisma:generate": "cd backend && npx prisma generate",
+    "prisma:push": "cd backend && npx prisma db push",
+    "prisma:seed": "cd backend && npx prisma db seed",
+    "prisma:studio": "cd backend && npx prisma studio",
+    "setup": "node scripts/setup-system.js"
+  },
+  "keywords": [
+    "house-rental",
+    "nepali-calendar",
+    "bikram-sambat",
+    "esewa-payment",
+    "room-management"
+  ],
+  "author": "Yubraj",
+  "license": "UNLICENSED"
+}

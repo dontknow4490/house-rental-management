@@ -1,0 +1,79 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
+  }
+}
+
+body {
+  background-color: #f8fafc;
+  color: #0f172a;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Professional solid light card and panel styles */
+.app-card {
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.03);
+}
+
+.app-card-subtle {
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.375rem;
+}
+
+.glass-panel {
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+}
+
+.glass-card {
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.03);
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Print Styles for Digital Receipt */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .printable-receipt {
+    box-shadow: none !important;
+    border: 1px solid #cbd5e1 !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+  }
+}

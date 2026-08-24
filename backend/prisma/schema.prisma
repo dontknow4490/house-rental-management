@@ -1,0 +1,396 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  TENANT
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum RoomStatus {
+  VACANT
+  OCCUPIED
+}
+
+enum TenantStatus {
+  ACTIVE
+  MOVED_OUT
+  ARCHIVED
+}
+
+enum BillStatus {
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+  PENDING_VERIFICATION
+}
+
+enum PaymentMethod {
+  ESEWA
+  BANK_TRANSFER
+  CASH
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING_VERIFICATION
+  VERIFIED
+  REJECTED
+}
+
+enum BorrowingStatus {
+  OUTSTANDING
+  PARTIALLY_PAID
+  PAID
+}
+
+enum AdjustmentType {
+  DISCOUNT
+  CHARGE
+  CREDIT
+  PREVIOUS_BALANCE
+}
+
+enum MaintenancePriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum MaintenanceStatus {
+  NEW
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum NoticeCategory {
+  GENERAL
+  WATER
+  ELECTRICITY
+  URGENT
+}
+
+model User {
+  id           String      @id @default(uuid())
+  username     String      @unique
+  passwordHash String
+  role         Role        @default(TENANT)
+  fullName     String
+  phone        String?
+  status       UserStatus  @default(ACTIVE)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  tenantProfile      TenantProfile?
+  payments           Payment[]             @relation("TenantPayments")
+  verifiedPayments   Payment[]             @relation("AdminVerifiedPayments")
+  borrowings         Borrowing[]
+  bills              MonthlyBill[]
+  maintenanceRequests MaintenanceRequest[]
+  auditLogs          AuditLog[]
+  notifications      Notification[]
+
+  @@map("users")
+}
+
+model Room {
+  id          String      @id @default(uuid())
+  roomNumber  Int         @unique
+  name        String
+  defaultRent Float
+  status      RoomStatus  @default(VACANT)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  tenantProfiles      TenantProfile[]
+  electricityReadings ElectricityReading[]
+  waterPurchases      WaterPurchase[]
+  monthlyBills        MonthlyBill[]
+  adjustments         Adjustment[]
+  maintenanceRequests MaintenanceRequest[]
+
+  @@map("rooms")
+}
+
+model TenantProfile {
+  id                 String       @id @default(uuid())
+  userId             String       @unique
+  user               User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roomId             String
+  room               Room         @relation(fields: [roomId], references: [id])
+  numberOfPeople     Int          @default(1)
+  monthlyRent        Float
+  advanceBalance     Float        @default(0)
+  moveInDateBS       String
+  moveInDateAD       DateTime
+  moveOutDateBS      String?
+  moveOutDateAD      DateTime?
+  status             TenantStatus @default(ACTIVE)
+  citizenshipNumber  String?
+  citizenshipDocPath String?
+  internetEnabled    Boolean      @default(true)
+  notes              String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  @@map("tenant_profiles")
+}
+
+model SystemSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+model ElectricityReading {
+  id              String   @id @default(uuid())
+  roomId          String
+  room            Room     @relation(fields: [roomId], references: [id])
+  tenantId        String?
+  yearBS          Int
+  monthBS         Int
+  monthNameBS     String
+  previousReading Float
+  currentReading  Float
+  unitsUsed       Float
+  unitRate        Float
+  totalCharge     Float
+  readingDateAD   DateTime @default(now())
+  readingDateBS   String
+  createdAt       DateTime @default(now())
+
+  @@unique([roomId, yearBS, monthBS])
+  @@map("electricity_readings")
+}
+
+model WaterPurchase {
+  id             String       @id @default(uuid())
+  roomId         String
+  room           Room         @relation(fields: [roomId], references: [id])
+  tenantId       String?
+  yearBS         Int
+  monthBS        Int
+  quantity       Int          @default(1)
+  pricePerUnit   Float
+  totalAmount    Float
+  purchaseDateBS String
+  purchaseDateAD DateTime     @default(now())
+  note           String?
+  isSettled      Boolean      @default(false)
+  settledDateBS  String?
+  settledDateAD  DateTime?
+  billId         String?
+  bill           MonthlyBill? @relation(fields: [billId], references: [id], onDelete: SetNull)
+  createdAt      DateTime     @default(now())
+
+  @@map("water_purchases")
+}
+
+model Borrowing {
+  id                String          @id @default(uuid())
+  tenantId          String
+  tenant            User            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  amount            Float
+  outstandingAmount Float
+  borrowDateBS      String
+  borrowDateAD      DateTime        @default(now())
+  reason            String?
+  status            BorrowingStatus @default(OUTSTANDING)
+  repaidDateBS      String?
+  repaidDateAD      DateTime?
+  includeInBill     Boolean         @default(true)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@map("borrowings")
+}
+
+model Adjustment {
+  id        String         @id @default(uuid())
+  tenantId  String
+  roomId    String
+  room      Room           @relation(fields: [roomId], references: [id])
+  yearBS    Int
+  monthBS   Int
+  type      AdjustmentType
+  amount    Float
+  reason    String
+  createdAt DateTime       @default(now())
+
+  @@map("adjustments")
+}
+
+model MonthlyBill {
+  id                String     @id @default(uuid())
+  billNumber        String     @unique
+  tenantId          String
+  tenant            User       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  roomId            String
+  room              Room       @relation(fields: [roomId], references: [id])
+  yearBS            Int
+  monthBS           Int
+  monthNameBS       String
+  billingPeriodBS   String?
+  billingStartDateBS String?
+  billingEndDateBS  String?
+  isOngoing         Boolean    @default(false)
+  rentAmount        Float
+  internetAmount    Float
+  electricityAmount Float
+  waterAmount       Float
+  garbageAmount     Float      @default(100)
+  borrowingAmount   Float      @default(0)
+  adjustmentsAmount Float      @default(0)
+  totalAmount       Float
+  paidAmount        Float      @default(0)
+  balanceDue        Float
+  status            BillStatus @default(UNPAID)
+  dueDateBS         String
+  correctionReason  String?
+  correctionHistory Json?
+  generatedAt       DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  payments       Payment[]
+  waterPurchases WaterPurchase[]
+
+  @@unique([tenantId, roomId, yearBS, monthBS])
+  @@index([yearBS, monthBS])
+  @@index([status])
+  @@map("monthly_bills")
+}
+
+model Payment {
+  id               String        @id @default(uuid())
+  billId           String
+  bill             MonthlyBill   @relation(fields: [billId], references: [id], onDelete: Cascade)
+  tenantId         String
+  tenant           User          @relation("TenantPayments", fields: [tenantId], references: [id], onDelete: Cascade)
+  amount           Float
+  paymentMethod    PaymentMethod @default(ESEWA)
+  transactionId    String?
+  proofImagePath   String?
+  paymentDateBS    String
+  paymentDateAD    DateTime      @default(now())
+  status           PaymentStatus @default(PENDING_VERIFICATION)
+  verifiedAt       DateTime?
+  verifiedByUserId String?
+  verifiedByUser   User?         @relation("AdminVerifiedPayments", fields: [verifiedByUserId], references: [id])
+  receiptNumber    String?       @unique
+  rejectionReason  String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  digitalReceipt DigitalReceipt?
+
+  @@index([status])
+  @@index([tenantId])
+  @@map("payments")
+}
+
+model DigitalReceipt {
+  id              String   @id @default(uuid())
+  paymentId       String   @unique
+  payment         Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  receiptNumber   String   @unique
+  tenantName      String
+  roomNumber      Int
+  billingPeriodBS String
+  amount          Float
+  paymentMethod   String
+  transactionId   String?
+  issuedDateBS    String
+  issuedDateAD    DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  @@map("digital_receipts")
+}
+
+model Notice {
+  id           String         @id @default(uuid())
+  title        String
+  content      String
+  category     NoticeCategory @default(GENERAL)
+  isActive     Boolean        @default(true)
+  createdDateBS String
+  createdDateAD DateTime       @default(now())
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@map("notices")
+}
+
+model MaintenanceRequest {
+  id            String              @id @default(uuid())
+  tenantId      String
+  tenant        User                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  roomId        String
+  room          Room                @relation(fields: [roomId], references: [id])
+  title         String              @default("")
+  category      String              @default("General")
+  description   String
+  photoPath     String?
+  priority      MaintenancePriority @default(MEDIUM)
+  status        MaintenanceStatus   @default(NEW)
+  createdDateBS String
+  adminNotes    String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@map("maintenance_requests")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  username  String?
+  action    String
+  details   String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@map("audit_logs")
+}
+
+enum NotificationType {
+  PAYMENT_SUBMITTED
+  PAYMENT_VERIFIED
+  PAYMENT_REJECTED
+  MAINTENANCE_UPDATE
+  BILL_GENERATED
+  SYSTEM
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType @default(SYSTEM)
+  title     String
+  message   String
+  link      String?
+  isRead    Boolean          @default(false)
+  data      Json?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
