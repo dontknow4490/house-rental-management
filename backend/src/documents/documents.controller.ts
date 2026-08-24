@@ -25,13 +25,16 @@ import * as fs from 'fs';
 import { Response } from 'express';
 import { getUploadSubdir, getUploadsRoot } from '../common/utils/upload-path.util';
 
+import { resolve } from 'path';
+import { validateUploadedFile, sanitizeFileExtension } from '../common/utils/file-upload.util';
+
 const citizenshipStorage = diskStorage({
   destination: (req, file, cb) => {
     const uploadPath = getUploadSubdir('private/citizenship');
     cb(null, uploadPath);
   },
   filename: (req, file, cb) => {
-    const ext = extname(file.originalname).toLowerCase();
+    const ext = sanitizeFileExtension(file.originalname, true);
     cb(null, `citizenship_${req.params.tenantId}_${Date.now()}${ext}`);
   },
 });
@@ -49,7 +52,7 @@ export class DocumentsController {
       limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
       fileFilter: (req, file, cb) => {
         if (!file.mimetype.match(/\/(jpg|jpeg|png|webp|pdf)$/)) {
-          return cb(new BadRequestException('Only images and PDF files are allowed!'), false);
+          return cb(new BadRequestException('Only images (JPG, PNG, WEBP) and PDF files are allowed!'), false);
         }
         cb(null, true);
       },
@@ -63,6 +66,9 @@ export class DocumentsController {
     @Ip() ipAddress: string,
   ) {
     const file = files && files.length > 0 ? files[0] : undefined;
+    if (file) {
+      validateUploadedFile(file, { allowPdf: true });
+    }
     if (!file && !citizenshipNumber) {
       throw new BadRequestException('Please provide a citizenship number or select a document to upload');
     }
@@ -84,9 +90,11 @@ export class DocumentsController {
     const doc = await this.documentsService.getCitizenshipDoc(tenantId);
     const sanitizedRelPath = doc.citizenshipDocPath.replace(/^\/?uploads\//, '');
     const absolutePath = join(getUploadsRoot(), sanitizedRelPath);
-    if (!fs.existsSync(absolutePath)) {
-      throw new NotFoundException('File not found on disk');
+    const canonicalPath = resolve(absolutePath);
+
+    if (!canonicalPath.startsWith(getUploadsRoot()) || !fs.existsSync(canonicalPath)) {
+      throw new NotFoundException('File not found on disk or access denied');
     }
-    return res.sendFile(absolutePath);
+    return res.sendFile(canonicalPath);
   }
 }

@@ -32,13 +32,15 @@ import * as fs from 'fs';
 import { Response } from 'express';
 import { getUploadSubdir } from '../common/utils/upload-path.util';
 
+import { validateUploadedFile, sanitizeFileExtension } from '../common/utils/file-upload.util';
+
 const proofStorage = diskStorage({
   destination: (req, file, cb) => {
     const uploadPath = getUploadSubdir('proofs');
     cb(null, uploadPath);
   },
   filename: (req, file, cb) => {
-    const ext = extname(file.originalname).toLowerCase();
+    const ext = sanitizeFileExtension(file.originalname, true);
     cb(null, `payment_proof_${Date.now()}${ext}`);
   },
 });
@@ -68,7 +70,7 @@ export class PaymentsController {
       limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
       fileFilter: (req, file, cb) => {
         if (!file.mimetype.match(/\/(jpg|jpeg|png|webp|pdf)$/)) {
-          return cb(new BadRequestException('Only JPG, JPEG, and PNG image files are allowed!'), false);
+          return cb(new BadRequestException('Only JPG, JPEG, PNG, WEBP, and PDF files are allowed!'), false);
         }
         cb(null, true);
       },
@@ -80,6 +82,9 @@ export class PaymentsController {
     @CurrentUser('id') tenantId: string,
     @Ip() ipAddress: string,
   ) {
+    if (file) {
+      validateUploadedFile(file, { allowPdf: true });
+    }
     if (!file && !dto.proofImagePath) {
       throw new BadRequestException('Payment proof screenshot is required.');
     }

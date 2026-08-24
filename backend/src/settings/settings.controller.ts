@@ -23,13 +23,15 @@ import { extname, join } from 'path';
 import * as fs from 'fs';
 import { getUploadSubdir } from '../common/utils/upload-path.util';
 
+import { validateUploadedFile, sanitizeFileExtension } from '../common/utils/file-upload.util';
+
 const qrStorage = diskStorage({
   destination: (req, file, cb) => {
     const uploadPath = getUploadSubdir('qr');
     cb(null, uploadPath);
   },
   filename: (req, file, cb) => {
-    const ext = extname(file.originalname).toLowerCase();
+    const ext = sanitizeFileExtension(file.originalname, false);
     cb(null, `esewa_qr_${Date.now()}${ext}`);
   },
 });
@@ -70,7 +72,7 @@ export class SettingsController {
       limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
       fileFilter: (req, file, cb) => {
         if (!file.mimetype.match(/\/(jpg|jpeg|png|webp)$/)) {
-          return cb(new BadRequestException('Only JPG, JPEG, and PNG image files are allowed!'), false);
+          return cb(new BadRequestException('Only JPG, JPEG, PNG, and WEBP image files are allowed!'), false);
         }
         cb(null, true);
       },
@@ -84,6 +86,7 @@ export class SettingsController {
     if (!file) {
       throw new BadRequestException('No image file provided');
     }
+    validateUploadedFile(file, { allowPdf: false });
     const relativePath = `/uploads/qr/${file.filename}`;
     await this.settingsService.updateSettings(
       { ESEWA_QR_IMAGE: relativePath },

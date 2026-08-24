@@ -3,6 +3,7 @@ import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import * as cookieParser from 'cookie-parser';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import helmet from 'helmet';
 import { join } from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -42,6 +43,14 @@ async function bootstrap() {
   // Set global API prefix
   app.setGlobalPrefix('api');
 
+  // Configure Helmet security HTTP headers
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: { policy: 'cross-origin' }, // Allows cross-origin image loading for static uploads
+      contentSecurityPolicy: false,
+    }),
+  );
+
   // Enable Cookie Parser for secure HTTP-only cookies
   app.use(cookieParser());
 
@@ -54,9 +63,37 @@ async function bootstrap() {
     }),
   );
 
-  // Enable CORS with credentials for local and LAN access
+  // Configure restricted CORS whitelist
+  const lanIp = getLanIp();
+  const allowedOrigins: string[] = [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    `http://localhost:${process.env.PORT || 4000}`,
+    `http://127.0.0.1:${process.env.PORT || 4000}`,
+  ];
+
+  if (process.env.FRONTEND_URL) {
+    allowedOrigins.push(process.env.FRONTEND_URL.replace(/\/$/, ''));
+  }
+
+  if (process.env.NODE_ENV !== 'production' && lanIp) {
+    allowedOrigins.push(`http://${lanIp}:3000`);
+    allowedOrigins.push(`http://${lanIp}:${process.env.PORT || 4000}`);
+  }
+
   app.enableCors({
-    origin: true, // Automatically reflects request origin for localhost, LAN IPs, and mobile devices
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps, curl, or server-side fetch)
+      if (!origin) return callback(null, true);
+
+      const isAllowed = allowedOrigins.some((allowed) => allowed === origin);
+      if (isAllowed) {
+        callback(null, true);
+      } else {
+        console.warn(`[CORS WARN] Request blocked from unapproved origin: ${origin}`);
+        callback(new Error(`CORS policy restriction: Origin '${origin}' is not allowed.`));
+      }
+    },
     credentials: true,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     allowedHeaders: 'Content-Type, Accept, Authorization, X-Requested-With',
@@ -76,7 +113,6 @@ async function bootstrap() {
   app.useStaticAssets(join(uploadDir, 'maintenance'), { prefix: '/uploads/maintenance/' });
 
   const port = process.env.PORT || 4000;
-  const lanIp = getLanIp();
 
   await app.listen(port, '0.0.0.0');
 
