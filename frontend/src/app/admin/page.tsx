@@ -151,6 +151,7 @@ export default function AdminDashboardPage() {
 
   const expectedRent = summary?.stats?.expectedRent ?? 0;
   const collectedAmount = summary?.stats?.collectedAmount ?? 0;
+  const totalCollectedAllTime = summary?.stats?.totalCollectedAllTime ?? 0;
   const outstandingAmount = summary?.stats?.outstandingAmount ?? 0;
 
   return (
@@ -197,7 +198,7 @@ export default function AdminDashboardPage() {
       </div>
 
       {/* Row 2: Financial Overview */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
         <div className="bg-white border border-slate-200 rounded-lg p-3.5 shadow-sm">
           <div className="text-slate-500 font-medium">Expected Rent ({summary?.period?.monthNameBS || 'This Month'})</div>
           <div className="text-lg font-bold text-slate-900 mt-1 font-mono">
@@ -205,9 +206,15 @@ export default function AdminDashboardPage() {
           </div>
         </div>
         <div className="bg-white border border-slate-200 rounded-lg p-3.5 shadow-sm">
-          <div className="text-slate-500 font-medium">Collected</div>
+          <div className="text-slate-500 font-medium">Collected ({summary?.period?.monthNameBS || 'This Month'})</div>
           <div className="text-lg font-bold text-emerald-700 mt-1 font-mono">
             {formatCurrencyNPR(collectedAmount)}
+          </div>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-lg p-3.5 shadow-sm">
+          <div className="text-slate-500 font-medium">Total Collected (All-Time)</div>
+          <div className="text-lg font-bold text-slate-900 mt-1 font-mono">
+            {formatCurrencyNPR(totalCollectedAllTime)}
           </div>
         </div>
         <div className="bg-white border border-slate-200 rounded-lg p-3.5 shadow-sm">
