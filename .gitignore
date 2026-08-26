@@ -1,12 +1,29 @@
-# Environment files
+# Environment & Secret files
 .env
 .env.*
+.env.local
+.env.development
+.env.test
+.env.production
 !.env.example
 backend/.env
 backend/.env.*
+backend/.env.local
+backend/.env.production
 !backend/.env.example
-frontend/.env*
+frontend/.env
+frontend/.env.*
+frontend/.env.local
+frontend/.env.production
 !frontend/.env.example
+
+# SSL / TLS Certificates & Let's Encrypt Secrets
+certbot/
+*.pem
+*.key
+*.crt
+*.pfx
+*.p12
 
 # Dependencies
 node_modules/
@@ -21,6 +38,7 @@ frontend/.next/
 out/
 build/
 coverage/
+*.tsbuildinfo
 
 # Uploads & Private Tenant Data (Citizenship, Receipts, Proofs, QR)
 uploads/
@@ -31,6 +49,7 @@ backend/uploads/*
 # Database Backups
 backups/
 *.sql
+*.sql.gz
 
 # System & Package Logs
 *.log
