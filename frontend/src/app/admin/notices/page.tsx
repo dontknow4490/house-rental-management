@@ -4,6 +4,24 @@ import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { useToast } from '@/lib/toast-context';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
+import { SkeletonCard } from '@/components/ui/LoadingSkeleton';
+import { EmptyState } from '@/components/ui/EmptyState';
+import {
+  BellRing,
+  PlusCircle,
+  Calendar,
+  Trash2,
+  ToggleLeft,
+  ToggleRight,
+  AlertTriangle,
+  Info,
+  CreditCard,
+  Wrench,
+  CheckCircle,
+} from 'lucide-react';
 
 export default function AdminNoticesPage() {
   const toast = useToast();
@@ -23,7 +41,7 @@ export default function AdminNoticesPage() {
     try {
       setLoading(true);
       const data = await api.get('/notices/all');
-      setNotices(data);
+      setNotices(Array.isArray(data) ? data : []);
     } catch (err: any) {
       toast.error(err.message || 'Failed to load notices');
     } finally {
@@ -47,7 +65,7 @@ export default function AdminNoticesPage() {
       setModalOpen(false);
       setForm({ title: '', content: '', category: 'GENERAL' });
       loadNotices();
-      toast.success('Notice posted successfully.');
+      toast.success('Notice published to all residents.');
     } catch (err: any) {
       toast.error(err.message || 'Failed to post notice');
     }
@@ -75,165 +93,234 @@ export default function AdminNoticesPage() {
       setDeleteModalOpen(false);
       setDeleteTargetId(null);
       loadNotices();
-      toast.success('Notice removed.');
+      toast.success('Notice deleted.');
     } catch (err: any) {
       toast.error(err.message || 'Failed to delete notice');
     }
   };
 
+  const getCategoryBadge = (category: string) => {
+    switch (category) {
+      case 'URGENT':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-50 text-rose-800 border border-rose-200">
+            <AlertTriangle className="w-3 h-3 text-rose-600" />
+            <span>Urgent Notice</span>
+          </span>
+        );
+      case 'PAYMENT':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+            <CreditCard className="w-3 h-3 text-amber-600" />
+            <span>Payment Reminder</span>
+          </span>
+        );
+      case 'MAINTENANCE':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+            <Wrench className="w-3 h-3 text-blue-600" />
+            <span>Maintenance</span>
+          </span>
+        );
+      default:
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-800 border border-indigo-200">
+            <Info className="w-3 h-3 text-indigo-600" />
+            <span>General Announcement</span>
+          </span>
+        );
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
-        <div>
-          <h2 className="text-base font-bold text-slate-900">Notices</h2>
-          <p className="text-xs text-slate-500">Publish house notices and announcements</p>
-        </div>
+      {/* Page Header */}
+      <PageHeader
+        category="Communications"
+        title="Announcements & Notices"
+        subtitle="Broadcast house notices, payment due dates, and maintenance announcements to residents"
+        actions={
+          <Button
+            onClick={() => setModalOpen(true)}
+            variant="primary"
+            size="sm"
+            className="font-bold shadow-xs"
+          >
+            <PlusCircle className="w-4 h-4" />
+            <span>Post New Notice</span>
+          </Button>
+        }
+      />
 
-        <button
-          onClick={() => setModalOpen(true)}
-          className="px-3 py-1.5 rounded-md bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium transition"
-        >
-          Post Notice
-        </button>
-      </div>
-
+      {/* Notices Grid */}
       {loading ? (
-        <div className="flex justify-center py-16 text-slate-400 text-xs">
-          Loading notices...
-        </div>
+        <SkeletonCard count={3} />
       ) : notices.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-lg p-12 text-center text-slate-400 text-xs shadow-sm">
-          No notices yet
-        </div>
+        <EmptyState
+          icon={<BellRing className="w-6 h-6 text-indigo-500" />}
+          title="No notices published"
+          description="Create your first house announcement to notify all residents."
+          action={
+            <Button onClick={() => setModalOpen(true)} variant="primary" size="sm">
+              <PlusCircle className="w-4 h-4" />
+              <span>Post New Notice</span>
+            </Button>
+          }
+        />
       ) : (
-        <div className="space-y-3">
-          {notices.map((n) => (
-            <div
-              key={n.id}
-              className={`bg-white border rounded-lg p-4 shadow-sm text-xs space-y-2 transition ${
-                n.isActive ? 'border-slate-200' : 'border-slate-200 opacity-60 bg-slate-50'
-              }`}
-            >
-              <div className="flex items-start justify-between gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {notices.map((n) => {
+            const isActive = n.isActive !== false;
+
+            return (
+              <div
+                key={n.id}
+                className={`rounded-2xl border p-5 shadow-card transition-all duration-200 hover:shadow-card-hover flex flex-col justify-between ${
+                  isActive
+                    ? 'bg-white border-slate-200/80'
+                    : 'bg-slate-50/70 border-slate-200 opacity-60'
+                }`}
+              >
                 <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-sm text-slate-900">{n.title}</span>
-                    <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] bg-slate-100 text-slate-600 font-medium">
-                      {n.category || 'General'}
-                    </span>
-                    {!n.isActive && (
-                      <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] bg-amber-50 text-amber-700 font-medium">
-                        Archived
+                  <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-100">
+                    <div className="flex items-center gap-2">
+                      {getCategoryBadge(n.category)}
+                      <span className="text-[11px] text-slate-400 font-mono flex items-center gap-1">
+                        <Calendar className="w-3 h-3" />
+                        <span>{n.createdAtBS || new Date(n.createdAt).toLocaleDateString()}</span>
                       </span>
-                    )}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleToggleActive(n.id)}
+                      className={`text-xs font-semibold flex items-center gap-1 ${
+                        isActive ? 'text-emerald-700' : 'text-slate-400'
+                      }`}
+                    >
+                      {isActive ? (
+                        <>
+                          <ToggleRight className="w-5 h-5 text-emerald-600" />
+                          <span>Active</span>
+                        </>
+                      ) : (
+                        <>
+                          <ToggleLeft className="w-5 h-5 text-slate-400" />
+                          <span>Archived</span>
+                        </>
+                      )}
+                    </button>
                   </div>
-                  <div className="text-[11px] text-slate-400 mt-0.5 font-mono">
-                    Posted on {n.createdDateBS}
+
+                  <div className="py-3.5 space-y-2">
+                    <h3 className="text-sm font-extrabold text-slate-900 tracking-tight">
+                      {n.title}
+                    </h3>
+                    <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-line">
+                      {n.content}
+                    </p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+                  <span className="text-[11px] text-slate-400">
+                    Visible on tenant dashboard: {isActive ? 'Yes' : 'No'}
+                  </span>
                   <button
-                    onClick={() => handleToggleActive(n.id)}
-                    className="px-2 py-1 rounded border border-slate-300 hover:bg-slate-100 text-[11px] text-slate-700"
-                  >
-                    {n.isActive ? 'Archive' : 'Publish'}
-                  </button>
-                  <button
+                    type="button"
                     onClick={() => handleOpenDelete(n.id)}
-                    className="px-2 py-1 rounded border border-rose-200 hover:bg-rose-50 text-[11px] text-rose-700 font-medium"
+                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                    title="Delete notice"
                   >
-                    Delete
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
               </div>
-
-              <p className="text-slate-700 whitespace-pre-line leading-relaxed">{n.content}</p>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
       {/* Post Notice Modal */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-          <div className="bg-white border border-slate-200 rounded-lg p-5 max-w-md w-full shadow-lg text-xs space-y-3">
-            <h3 className="text-sm font-semibold text-slate-900 pb-2 border-b border-slate-100">
-              Post House Notice
-            </h3>
-            <form onSubmit={handleCreateNotice} className="space-y-3">
-              <div>
-                <label className="block text-slate-700 font-medium mb-1">Title *</label>
-                <input
-                  type="text"
-                  required
-                  value={form.title}
-                  onChange={(e) => setForm({ ...form, title: e.target.value })}
-                  placeholder="e.g. Tank cleaning scheduled for Saturday"
-                  className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-slate-900 focus:outline-none focus:border-slate-900"
-                />
-              </div>
+        <Modal
+          isOpen={true}
+          onClose={() => setModalOpen(false)}
+          title="Post Announcement Notice"
+          description="Send a message to all tenant dashboards"
+          icon={<BellRing className="w-5 h-5 text-indigo-600" />}
+          maxWidth="sm"
+        >
+          <form onSubmit={handleCreateNotice} className="space-y-4">
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Category <span className="text-rose-500">*</span>
+              </label>
+              <select
+                value={form.category}
+                onChange={(e) => setForm({ ...form, category: e.target.value })}
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-slate-900 text-xs focus:outline-none focus:border-indigo-500 bg-white"
+              >
+                <option value="GENERAL">General Notice</option>
+                <option value="PAYMENT">Payment Reminder</option>
+                <option value="MAINTENANCE">Maintenance / Utility Notice</option>
+                <option value="URGENT">Urgent Alert</option>
+              </select>
+            </div>
 
-              <div>
-                <label className="block text-slate-700 font-medium mb-1">Category</label>
-                <select
-                  value={form.category}
-                  onChange={(e) => setForm({ ...form, category: e.target.value })}
-                  className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-slate-900 bg-white"
-                >
-                  <option value="GENERAL">General Announcement</option>
-                  <option value="WATER">Water Supply</option>
-                  <option value="ELECTRICITY">Electricity</option>
-                  <option value="URGENT">Urgent Alert</option>
-                </select>
-              </div>
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Notice Title <span className="text-rose-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Water tank cleaning schedule"
+                value={form.title}
+                onChange={(e) => setForm({ ...form, title: e.target.value })}
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-slate-900 text-xs focus:outline-none focus:border-indigo-500"
+              />
+            </div>
 
-              <div>
-                <label className="block text-slate-700 font-medium mb-1">Content *</label>
-                <textarea
-                  rows={4}
-                  required
-                  value={form.content}
-                  onChange={(e) => setForm({ ...form, content: e.target.value })}
-                  placeholder="Write notice details for tenants..."
-                  className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-slate-900 focus:outline-none focus:border-slate-900"
-                />
-              </div>
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Content / Details <span className="text-rose-500">*</span>
+              </label>
+              <textarea
+                required
+                rows={4}
+                placeholder="Write your announcement details here..."
+                value={form.content}
+                onChange={(e) => setForm({ ...form, content: e.target.value })}
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-slate-900 text-xs focus:outline-none focus:border-indigo-500"
+              />
+            </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setModalOpen(false)}
-                  className="px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-100"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-3 py-1.5 rounded bg-slate-900 hover:bg-slate-800 text-white font-medium"
-                >
-                  Publish Notice
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" className="font-bold">
+                Publish Notice
+              </Button>
+            </div>
+          </form>
+        </Modal>
       )}
 
       {/* Delete Confirmation Modal */}
-      <ConfirmModal
-        isOpen={deleteModalOpen}
-        title="Delete House Notice"
-        message="Are you sure you want to delete this notice? This action cannot be undone."
-        confirmText="Delete Notice"
-        cancelText="Cancel"
-        isDanger={true}
-        onConfirm={handleConfirmDelete}
-        onCancel={() => {
-          setDeleteModalOpen(false);
-          setDeleteTargetId(null);
-        }}
-      />
+      {deleteModalOpen && (
+        <ConfirmModal
+          isOpen={true}
+          isDanger={true}
+          title="Delete Notice?"
+          message="This announcement will be permanently removed from all tenant dashboards."
+          confirmText="Delete"
+          cancelText="Cancel"
+          onConfirm={handleConfirmDelete}
+          onCancel={() => setDeleteModalOpen(false)}
+        />
+      )}
     </div>
   );
 }

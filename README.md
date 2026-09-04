@@ -18,7 +18,7 @@ A secure, private rental management system custom-built for managing a **single 
    - **Internet**: Auto-calculated based on occupants (`Rs. 250/person/month`).
    - **Electricity**: Auto-calculated from meter readings (`(Current - Previous) × Rs. 15/unit`) with validation preventing current readings from being lower than previous readings.
    - **Drinking Water**: Quantity × price per jar (`Rs. 45/jar`).
-   - **Borrowing / Loans**: Separate debt ledger with options to include outstanding amounts in the monthly bill.
+   - **Custom Purchases / Extras**: Line-item tracking for groceries, gas cylinders, and custom charges.
    - **Adjustments & Discounts**: Manual credits, discounts, repairs, and balance carryovers.
 
 3. **Tenant Fast-Pay & Payment Verification**:

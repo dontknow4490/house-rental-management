@@ -173,9 +173,18 @@ export class PaymentsService {
     const todayBS = this.nepaliCalendarService.getCurrentNepaliDate();
 
     if (dto.verified) {
-      // 1. Generate digital receipt number
+      // 1. Generate collision-resistant digital receipt number
       const receiptCount = await this.prisma.digitalReceipt.count();
-      const receiptNumber = `REC-${todayBS.yearBS}-${String(todayBS.monthBS).padStart(2, '0')}-${String(receiptCount + 1).padStart(4, '0')}`;
+      let receiptNumber = `REC-${todayBS.yearBS}-${String(todayBS.monthBS).padStart(2, '0')}-${String(receiptCount + 1).padStart(4, '0')}`;
+      let seq = receiptCount + 1;
+      while (true) {
+        const existingReceipt = await this.prisma.digitalReceipt.findUnique({
+          where: { receiptNumber },
+        });
+        if (!existingReceipt) break;
+        seq++;
+        receiptNumber = `REC-${todayBS.yearBS}-${String(todayBS.monthBS).padStart(2, '0')}-${String(seq).padStart(4, '0')}`;
+      }
 
       // 2. Update payment record to VERIFIED
       const updatedPayment = await this.prisma.payment.update({
@@ -209,42 +218,7 @@ export class PaymentsService {
         },
       });
 
-      // 5. Settle borrowing if included in this bill and fully covered
-      const refreshedBill = await this.prisma.monthlyBill.findUnique({
-        where: { id: payment.billId },
-      });
-
-      if (payment.bill.borrowingAmount > 0 && refreshedBill?.balanceDue === 0) {
-        const tenantBorrowings = await this.prisma.borrowing.findMany({
-          where: {
-            tenantId: payment.tenantId,
-            includeInBill: true,
-            status: { in: ['OUTSTANDING', 'PARTIALLY_PAID'] },
-          },
-        });
-        const monthBorrowingIds = tenantBorrowings
-          .filter((b) => {
-            const parsed = this.nepaliCalendarService.parseBsDate(b.borrowDateBS);
-            return parsed && parsed.yearBS === payment.bill.yearBS && parsed.monthBS === payment.bill.monthBS;
-          })
-          .map((b) => b.id);
-
-        if (monthBorrowingIds.length > 0) {
-          await this.prisma.borrowing.updateMany({
-            where: {
-              id: { in: monthBorrowingIds },
-            },
-            data: {
-              outstandingAmount: 0,
-              status: 'PAID',
-              repaidDateBS: todayBS.nepaliFormatted,
-              repaidDateAD: new Date(),
-            },
-          });
-        }
-      }
-
-      // 6. Permanently delete water purchases linked to bills that are now fully paid
+      // 5. Mark water purchases as settled rather than deleting them, ensuring permanent historical audit integrity
       const allPaidBills = await this.prisma.monthlyBill.findMany({
         where: {
           tenantId: payment.tenantId,
@@ -253,12 +227,17 @@ export class PaymentsService {
       });
 
       if (allPaidBills.length > 0) {
-        await this.prisma.waterPurchase.deleteMany({
+        await this.prisma.waterPurchase.updateMany({
           where: {
             OR: allPaidBills.flatMap((pb) => [
               { billId: pb.id },
               { roomId: pb.roomId, yearBS: pb.yearBS, monthBS: pb.monthBS },
             ]),
+          },
+          data: {
+            isSettled: true,
+            settledDateBS: todayBS.nepaliFormatted,
+            settledDateAD: new Date(),
           },
         });
       }
@@ -405,36 +384,6 @@ export class PaymentsService {
           },
         });
 
-        // Automatically settle any borrowing included in this paid bill
-        if (b.borrowingAmount > 0) {
-          const tenantBorrowings = await this.prisma.borrowing.findMany({
-            where: {
-              tenantId,
-              includeInBill: true,
-              status: { in: ['OUTSTANDING', 'PARTIALLY_PAID'] },
-            },
-          });
-          const monthBorrowingIds = tenantBorrowings
-            .filter((br) => {
-              const parsed = this.nepaliCalendarService.parseBsDate(br.borrowDateBS);
-              return parsed && parsed.yearBS === b.yearBS && parsed.monthBS === b.monthBS;
-            })
-            .map((br) => br.id);
-
-          if (monthBorrowingIds.length > 0) {
-            const todayBS = this.nepaliCalendarService.getCurrentNepaliDate();
-            await this.prisma.borrowing.updateMany({
-              where: { id: { in: monthBorrowingIds } },
-              data: {
-                outstandingAmount: 0,
-                status: 'PAID',
-                repaidDateBS: todayBS.nepaliFormatted,
-                repaidDateAD: new Date(),
-              },
-            });
-          }
-        }
-
         verifiedPool = Number((verifiedPool - total).toFixed(2));
       } else if (verifiedPool > 0) {
         const paid = verifiedPool;
@@ -487,7 +436,17 @@ export class PaymentsService {
           },
         },
         tenant: {
-          select: { id: true, fullName: true, username: true, phone: true },
+          select: {
+            id: true,
+            fullName: true,
+            username: true,
+            phone: true,
+            tenantProfile: {
+              include: {
+                room: { select: { roomNumber: true, name: true } },
+              },
+            },
+          },
         },
         digitalReceipt: true,
       },
@@ -584,9 +543,18 @@ export class PaymentsService {
     const todayBS = this.nepaliCalendarService.getCurrentNepaliDate();
     const paymentDateBS = dto.paymentDateBS || todayBS.nepaliFormatted;
 
-    // 1. Generate digital receipt number
+    // 1. Generate collision-resistant digital receipt number
     const receiptCount = await this.prisma.digitalReceipt.count();
-    const receiptNumber = `REC-${todayBS.yearBS}-${String(todayBS.monthBS).padStart(2, '0')}-${String(receiptCount + 1).padStart(4, '0')}`;
+    let receiptNumber = `REC-${todayBS.yearBS}-${String(todayBS.monthBS).padStart(2, '0')}-${String(receiptCount + 1).padStart(4, '0')}`;
+    let seq = receiptCount + 1;
+    while (true) {
+      const existingReceipt = await this.prisma.digitalReceipt.findUnique({
+        where: { receiptNumber },
+      });
+      if (!existingReceipt) break;
+      seq++;
+      receiptNumber = `REC-${todayBS.yearBS}-${String(todayBS.monthBS).padStart(2, '0')}-${String(seq).padStart(4, '0')}`;
+    }
     const transactionId = `CASH-${Date.now()}`;
 
     // 2. Create verified cash payment record
@@ -630,50 +598,7 @@ export class PaymentsService {
       },
     });
 
-    // 5. Settle borrowing if included in bills that are now fully paid
-    const unpaidBorrowings = await this.prisma.borrowing.findMany({
-      where: {
-        tenantId: dto.tenantId,
-        includeInBill: true,
-        status: { in: ['OUTSTANDING', 'PARTIALLY_PAID'] },
-      },
-    });
-
-    if (unpaidBorrowings.length > 0) {
-      const settledBills = await this.prisma.monthlyBill.findMany({
-        where: {
-          tenantId: dto.tenantId,
-          balanceDue: 0,
-        },
-      });
-
-      const toSettleBorrowingIds: string[] = [];
-      for (const b of unpaidBorrowings) {
-        const parsed = this.nepaliCalendarService.parseBsDate(b.borrowDateBS);
-        if (parsed) {
-          const matchingSettledBill = settledBills.find(
-            (sb) => sb.yearBS === parsed.yearBS && sb.monthBS === parsed.monthBS,
-          );
-          if (matchingSettledBill) {
-            toSettleBorrowingIds.push(b.id);
-          }
-        }
-      }
-
-      if (toSettleBorrowingIds.length > 0) {
-        await this.prisma.borrowing.updateMany({
-          where: { id: { in: toSettleBorrowingIds } },
-          data: {
-            outstandingAmount: 0,
-            status: 'PAID',
-            repaidDateBS: todayBS.nepaliFormatted,
-            repaidDateAD: new Date(),
-          },
-        });
-      }
-    }
-
-    // 6. Permanently delete water purchases linked to all bills that are now fully paid
+    // 5. Mark water purchases as settled rather than deleting them, ensuring permanent historical audit integrity
     const allPaidBills = await this.prisma.monthlyBill.findMany({
       where: {
         tenantId: dto.tenantId,
@@ -682,12 +607,17 @@ export class PaymentsService {
     });
 
     if (allPaidBills.length > 0) {
-      await this.prisma.waterPurchase.deleteMany({
+      await this.prisma.waterPurchase.updateMany({
         where: {
           OR: allPaidBills.flatMap((pb) => [
             { billId: pb.id },
             { roomId: pb.roomId, yearBS: pb.yearBS, monthBS: pb.monthBS },
           ]),
+        },
+        data: {
+          isSettled: true,
+          settledDateBS: todayBS.nepaliFormatted,
+          settledDateAD: new Date(),
         },
       });
     }

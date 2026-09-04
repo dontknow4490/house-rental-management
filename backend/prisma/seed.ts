@@ -36,7 +36,7 @@ async function main() {
     await prisma.monthlyBill.deleteMany({});
     await prisma.electricityReading.deleteMany({});
     await prisma.waterPurchase.deleteMany({});
-    await prisma.borrowing.deleteMany({});
+    await prisma.customPurchase.deleteMany({});
     await prisma.maintenanceRequest.deleteMany({});
     await prisma.notice.deleteMany({});
     await prisma.auditLog.deleteMany({});
@@ -92,12 +92,12 @@ async function main() {
 
   // 5. Seed 6 Vacant Rooms
   const initialRooms = [
-    { roomNumber: 1, name: 'Room 1 (Ground Floor)', defaultRent: 6000 },
-    { roomNumber: 2, name: 'Room 2 (Ground Floor)', defaultRent: 5500 },
-    { roomNumber: 3, name: 'Room 3 (First Floor)', defaultRent: 6000 },
-    { roomNumber: 4, name: 'Room 4 (First Floor)', defaultRent: 6500 },
-    { roomNumber: 5, name: 'Room 5 (Second Floor)', defaultRent: 6000 },
-    { roomNumber: 6, name: 'Room 6 (Second Floor)', defaultRent: 6000 },
+    { roomNumber: 1, name: 'Room 1', defaultRent: 6000 },
+    { roomNumber: 2, name: 'Room 2', defaultRent: 5500 },
+    { roomNumber: 3, name: 'Room 3', defaultRent: 6000 },
+    { roomNumber: 4, name: 'Room 4', defaultRent: 6500 },
+    { roomNumber: 5, name: 'Room 5', defaultRent: 6000 },
+    { roomNumber: 6, name: 'Room 6', defaultRent: 6000 },
   ];
 
   for (const r of initialRooms) {

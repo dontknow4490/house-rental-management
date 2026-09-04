@@ -249,12 +249,6 @@ export default function TenantPayPage() {
                         <span className="font-mono font-medium text-slate-900">{formatCurrencyNPR(b.waterAmount)}</span>
                       </div>
                     )}
-                    {b.borrowingAmount > 0 && (
-                      <div className="flex justify-between py-0.5">
-                        <span>Borrowings Included:</span>
-                        <span className="font-mono font-medium text-slate-900">{formatCurrencyNPR(b.borrowingAmount)}</span>
-                      </div>
-                    )}
                     {b.adjustmentsAmount !== 0 && (
                       <div className="flex justify-between py-0.5">
                         <span>Adjustments:</span>

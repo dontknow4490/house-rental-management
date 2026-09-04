@@ -21,8 +21,8 @@ export interface CorrectBillDto {
   electricityAmount?: number;
   garbageAmount?: number;
   waterAmount?: number;
-  borrowingAmount?: number;
   adjustmentsAmount?: number;
+  customPurchasesAmount?: number;
   correctionReason: string;
 }
 
@@ -120,24 +120,7 @@ export class BillingService {
         const waterTotal = waterPurchases.reduce((acc, curr) => acc + curr.totalAmount, 0);
         const waterAmount = Number(waterTotal.toFixed(2));
 
-        // 6. Borrowing (Outstanding borrowings flagged for billing that belong to this month/period)
-        const allTenantBorrowings = await this.prisma.borrowing.findMany({
-          where: {
-            tenantId,
-            includeInBill: true,
-            status: { in: ['OUTSTANDING', 'PARTIALLY_PAID'] },
-          },
-        });
-        const monthBorrowings = allTenantBorrowings.filter((b) => {
-          const parsed = this.nepaliCalendarService.parseBsDate(b.borrowDateBS);
-          if (parsed) {
-            return parsed.yearBS === yearBS && parsed.monthBS === monthBS;
-          }
-          return false;
-        });
-        const borrowingAmount = Number(monthBorrowings.reduce((acc, curr) => acc + curr.outstandingAmount, 0).toFixed(2));
-
-        // 7. Adjustments
+        // 6. Adjustments
         let adjustmentsAmount = 0;
         for (const adj of room.adjustments.filter((a) => a.tenantId === tenantId)) {
           if (adj.type === 'DISCOUNT' || adj.type === 'CREDIT') {
@@ -147,9 +130,24 @@ export class BillingService {
           }
         }
 
+        // 7. Custom Purchases / Extra Charges (e.g. Chau Chau, Biscuit, Gas, etc.)
+        const customPurchases = await this.prisma.customPurchase.findMany({
+          where: {
+            roomId: room.id,
+            OR: [
+              { tenantId },
+              { tenantId: null },
+            ],
+            yearBS,
+            monthBS,
+          },
+        });
+        const customPurchasesTotal = customPurchases.reduce((acc, curr) => acc + curr.totalAmount, 0);
+        const customPurchasesAmount = Number(customPurchasesTotal.toFixed(2));
+
         // Total Calculation
         const totalAmount = Number(
-          (rentAmount + internetAmount + electricityAmount + garbageAmount + waterAmount + borrowingAmount + adjustmentsAmount).toFixed(2),
+          (rentAmount + internetAmount + electricityAmount + garbageAmount + waterAmount + adjustmentsAmount + customPurchasesAmount).toFixed(2),
         );
 
         const dueDateBS = `${yearBS} ${monthNameBS} 10`;
@@ -219,8 +217,8 @@ export class BillingService {
           electricityAmount,
           garbageAmount,
           waterAmount,
-          borrowingAmount,
           adjustmentsAmount,
+          customPurchasesAmount,
           totalAmount,
           paidAmount,
           balanceDue,
@@ -243,8 +241,8 @@ export class BillingService {
           electricityAmount,
           garbageAmount,
           waterAmount,
-          borrowingAmount,
           adjustmentsAmount,
+          customPurchasesAmount,
           totalAmount,
           paidAmount: 0,
           balanceDue: totalAmount,
@@ -257,6 +255,14 @@ export class BillingService {
       if (waterPurchases.length > 0) {
         await this.prisma.waterPurchase.updateMany({
           where: { id: { in: waterPurchases.map((w) => w.id) } },
+          data: { billId: bill.id },
+        });
+      }
+
+      // Link included custom purchases to this monthly bill
+      if (customPurchases.length > 0) {
+        await this.prisma.customPurchase.updateMany({
+          where: { id: { in: customPurchases.map((cp) => cp.id) } },
           data: { billId: bill.id },
         });
       }
@@ -356,16 +362,17 @@ export class BillingService {
       },
     });
 
-    const adjustments = await this.prisma.adjustment.findMany({
-      where: { roomId: bill.roomId, tenantId: bill.tenantId, yearBS: bill.yearBS, monthBS: bill.monthBS },
+    const customPurchases = await this.prisma.customPurchase.findMany({
+      where: {
+        OR: [
+          { billId: bill.id },
+          { roomId: bill.roomId, yearBS: bill.yearBS, monthBS: bill.monthBS },
+        ],
+      },
     });
 
-    const allBorrowings = await this.prisma.borrowing.findMany({
-      where: { tenantId: bill.tenantId, includeInBill: true },
-    });
-    const borrowings = allBorrowings.filter((b) => {
-      const parsed = this.nepaliCalendarService.parseBsDate(b.borrowDateBS);
-      return parsed && parsed.yearBS === bill.yearBS && parsed.monthBS === bill.monthBS;
+    const adjustments = await this.prisma.adjustment.findMany({
+      where: { roomId: bill.roomId, tenantId: bill.tenantId, yearBS: bill.yearBS, monthBS: bill.monthBS },
     });
 
     const tenantName = bill.tenant?.fullName || bill.tenant?.username || 'Tenant';
@@ -406,15 +413,20 @@ export class BillingService {
           amount: bill.waterAmount,
           items: waterPurchases,
         },
-        borrowing: {
-          description: 'Borrowed Money / Loans',
-          amount: bill.borrowingAmount,
-          items: borrowings,
-        },
         adjustments: {
           description: 'Adjustments & Discounts',
           amount: bill.adjustmentsAmount,
           items: adjustments,
+        },
+        customPurchases: {
+          description:
+            customPurchases.length > 0
+              ? `Custom Purchases / Extra Charges (${customPurchases.length} item(s))`
+              : bill.customPurchasesAmount > 0
+                ? `Custom Purchases (Rs. ${bill.customPurchasesAmount})`
+                : 'Custom Purchases',
+          amount: bill.customPurchasesAmount,
+          items: customPurchases,
         },
       },
     };
@@ -422,7 +434,21 @@ export class BillingService {
 
   async getMultiBillDetails(billIds: string[]) {
     if (!billIds || billIds.length === 0) {
-      return { bills: [], totalOutstanding: 0, totalBilled: 0, totalPaid: 0, count: 0 };
+      return {
+        bills: [],
+        count: 0,
+        totalBilled: 0,
+        totalPaid: 0,
+        totalOutstanding: 0,
+        balanceDue: 0,
+        totalDue: 0,
+        totalAmount: 0,
+        paidAmount: 0,
+        tenantName: 'Tenant',
+        roomNumber: null,
+        tenant: { fullName: 'Tenant' },
+        room: null,
+      };
     }
 
     const uniqueIds = Array.from(new Set(billIds));
@@ -453,14 +479,26 @@ export class BillingService {
       validBills.reduce((acc, b) => acc + (b.paidAmount ?? 0), 0).toFixed(2),
     );
 
+    const firstBill = validBills[0];
+    const tenantName = firstBill?.tenant?.fullName || firstBill?.tenant?.username || 'Tenant';
+    const roomNumber = firstBill?.room?.roomNumber ?? null;
+
     return {
+      isMultiMonth: true,
+      billCount: validBills.length,
       bills: validBills,
       count: validBills.length,
       totalBilled,
       totalPaid,
       totalOutstanding,
-      tenantName: validBills[0]?.tenant?.fullName || validBills[0]?.tenant?.username || 'Tenant',
-      roomNumber: validBills[0]?.room?.roomNumber,
+      balanceDue: totalOutstanding,
+      totalDue: totalOutstanding,
+      totalAmount: totalBilled,
+      paidAmount: totalPaid,
+      tenantName,
+      roomNumber,
+      tenant: firstBill?.tenant || { fullName: tenantName },
+      room: firstBill?.room || (roomNumber ? { roomNumber } : null),
     };
   }
 
@@ -523,8 +561,8 @@ export class BillingService {
           electricityAmount: b.electricityAmount,
           garbageAmount: b.garbageAmount ?? 100,
           waterAmount: b.waterAmount,
-          borrowingAmount: b.borrowingAmount,
           adjustmentsAmount: b.adjustmentsAmount,
+          customPurchasesAmount: b.customPurchasesAmount,
           totalAmount: b.totalAmount,
           paidAmount: b.paidAmount,
           balanceDue: b.balanceDue,
@@ -570,8 +608,8 @@ export class BillingService {
           electricityAmount: b.electricityAmount,
           garbageAmount: b.garbageAmount ?? 100,
           waterAmount: b.waterAmount,
-          borrowingAmount: b.borrowingAmount,
           adjustmentsAmount: b.adjustmentsAmount,
+          customPurchasesAmount: b.customPurchasesAmount,
           totalAmount: b.totalAmount,
           paidAmount: b.paidAmount,
           balanceDue: b.balanceDue,
@@ -643,6 +681,7 @@ export class BillingService {
         return {
           ...bill,
           garbageAmount: bill.garbageAmount ?? 100,
+          customPurchasesAmount: bill.customPurchasesAmount ?? 0,
           billingPeriodBS: billingPeriodBS || `${bill.yearBS} ${bill.monthNameBS}`,
           isOngoing: isOngoing || false,
           electricityReading: {
@@ -682,11 +721,11 @@ export class BillingService {
     const electricityAmount = dto.electricityAmount !== undefined ? Number(Number(dto.electricityAmount).toFixed(2)) : bill.electricityAmount;
     const garbageAmount = dto.garbageAmount !== undefined ? Number(Number(dto.garbageAmount).toFixed(2)) : (bill.garbageAmount ?? 100);
     const waterAmount = dto.waterAmount !== undefined ? Number(Number(dto.waterAmount).toFixed(2)) : bill.waterAmount;
-    const borrowingAmount = dto.borrowingAmount !== undefined ? Number(Number(dto.borrowingAmount).toFixed(2)) : bill.borrowingAmount;
     const adjustmentsAmount = dto.adjustmentsAmount !== undefined ? Number(Number(dto.adjustmentsAmount).toFixed(2)) : bill.adjustmentsAmount;
+    const customPurchasesAmount = dto.customPurchasesAmount !== undefined ? Number(Number(dto.customPurchasesAmount).toFixed(2)) : (bill.customPurchasesAmount ?? 0);
 
     const totalAmount = Number(
-      (rentAmount + internetAmount + electricityAmount + garbageAmount + waterAmount + borrowingAmount + adjustmentsAmount).toFixed(2),
+      (rentAmount + internetAmount + electricityAmount + garbageAmount + waterAmount + adjustmentsAmount + customPurchasesAmount).toFixed(2),
     );
 
     const todayBS = this.nepaliCalendarService.getCurrentNepaliDate();
@@ -704,8 +743,8 @@ export class BillingService {
         electricityAmount: { old: bill.electricityAmount, new: electricityAmount },
         garbageAmount: { old: bill.garbageAmount, new: garbageAmount },
         waterAmount: { old: bill.waterAmount, new: waterAmount },
-        borrowingAmount: { old: bill.borrowingAmount, new: borrowingAmount },
         adjustmentsAmount: { old: bill.adjustmentsAmount, new: adjustmentsAmount },
+        customPurchasesAmount: { old: bill.customPurchasesAmount, new: customPurchasesAmount },
       },
     };
 
@@ -717,8 +756,8 @@ export class BillingService {
         electricityAmount,
         garbageAmount,
         waterAmount,
-        borrowingAmount,
         adjustmentsAmount,
+        customPurchasesAmount,
         totalAmount,
         correctionReason: dto.correctionReason.trim(),
         correctionHistory: [...existingHistory, newHistoryEntry],
@@ -793,36 +832,6 @@ export class BillingService {
             status: 'PAID',
           },
         });
-
-        // Automatically settle any borrowing included in this paid bill
-        if (b.borrowingAmount > 0) {
-          const tenantBorrowings = await this.prisma.borrowing.findMany({
-            where: {
-              tenantId,
-              includeInBill: true,
-              status: { in: ['OUTSTANDING', 'PARTIALLY_PAID'] },
-            },
-          });
-          const monthBorrowingIds = tenantBorrowings
-            .filter((br) => {
-              const parsed = this.nepaliCalendarService.parseBsDate(br.borrowDateBS);
-              return parsed && parsed.yearBS === b.yearBS && parsed.monthBS === b.monthBS;
-            })
-            .map((br) => br.id);
-
-          if (monthBorrowingIds.length > 0) {
-            const todayBS = this.nepaliCalendarService.getCurrentNepaliDate();
-            await this.prisma.borrowing.updateMany({
-              where: { id: { in: monthBorrowingIds } },
-              data: {
-                outstandingAmount: 0,
-                status: 'PAID',
-                repaidDateBS: todayBS.nepaliFormatted,
-                repaidDateAD: new Date(),
-              },
-            });
-          }
-        }
 
         verifiedPool = Number((verifiedPool - total).toFixed(2));
       } else if (verifiedPool > 0) {
@@ -913,8 +922,8 @@ export class BillingService {
             electricityAmount: true,
             waterAmount: true,
             garbageAmount: true,
-            borrowingAmount: true,
             adjustmentsAmount: true,
+            customPurchasesAmount: true,
             totalAmount: true,
             paidAmount: true,
             balanceDue: true,
@@ -967,31 +976,86 @@ export class BillingService {
     const targetYear = yearBS || todayBS.yearBS;
     const targetMonth = monthBS || todayBS.monthBS;
 
-    const bills = await this.prisma.monthlyBill.findMany({
+    // Current month bills
+    const currentMonthBills = await this.prisma.monthlyBill.findMany({
       where: { yearBS: targetYear, monthBS: targetMonth },
     });
 
+    // All-time bills
     const allBills = await this.prisma.monthlyBill.findMany();
 
-    const pendingPaymentsCount = await this.prisma.payment.count({
+    // Verified payments ledger (the true source of truth for collected money)
+    const allVerifiedPayments = await this.prisma.payment.findMany({
+      where: { status: 'VERIFIED' },
+    });
+    const totalVerifiedPaymentsAmount = Number(
+      allVerifiedPayments.reduce((acc, curr) => acc + curr.amount, 0).toFixed(2),
+    );
+    const verifiedPaymentsCount = allVerifiedPayments.length;
+
+    // Pending payments count and total
+    const pendingPayments = await this.prisma.payment.findMany({
       where: { status: 'PENDING_VERIFICATION' },
     });
+    const pendingPaymentsCount = pendingPayments.length;
+    const pendingPaymentsAmount = Number(
+      pendingPayments.reduce((acc, curr) => acc + curr.amount, 0).toFixed(2),
+    );
 
-    const collectedAmount = bills.reduce((acc, curr) => acc + curr.paidAmount, 0);
-    const totalCollectedAllTime = allBills.reduce((acc, curr) => acc + curr.paidAmount, 0);
-    const totalOutstandingAllTime = allBills.reduce((acc, curr) => acc + curr.balanceDue, 0);
+    // Rejected payments count
+    const rejectedPaymentsCount = await this.prisma.payment.count({
+      where: { status: 'REJECTED' },
+    });
+    const allPaymentsCount = await this.prisma.payment.count();
 
-    // Expected Rent on Dashboard strictly equals Total Outstanding Amount across bills
-    const expectedRent = totalOutstandingAllTime;
-    const outstandingAmount = totalOutstandingAllTime;
+    // Active advance balance held across active tenant profiles
+    const activeProfiles = await this.prisma.tenantProfile.findMany({
+      where: { status: 'ACTIVE' },
+    });
+    const totalAdvanceBalance = Number(
+      activeProfiles.reduce((acc, curr) => acc + (curr.advanceBalance || 0), 0).toFixed(2),
+    );
+
+    // Total bills billed and collected
+    const totalBilledAllTime = Number(allBills.reduce((acc, curr) => acc + curr.totalAmount, 0).toFixed(2));
+    const totalBilledCollectedAllTime = Number(allBills.reduce((acc, curr) => acc + curr.paidAmount, 0).toFixed(2));
+    const totalOutstandingAllTime = Number(allBills.reduce((acc, curr) => acc + curr.balanceDue, 0).toFixed(2));
+
+    // True Total Collected All-Time from verified ledger
+    const totalCollectedAllTime = totalVerifiedPaymentsAmount;
+
+    // Current month metrics
+    const currentMonthCollected = Number(currentMonthBills.reduce((acc, curr) => acc + curr.paidAmount, 0).toFixed(2));
+    const currentMonthOutstanding = Number(currentMonthBills.reduce((acc, curr) => acc + curr.balanceDue, 0).toFixed(2));
+    const currentMonthTotalBilled = Number(currentMonthBills.reduce((acc, curr) => acc + curr.totalAmount, 0).toFixed(2));
+
+    // Base expected rent for current month (if bills generated, sum totalAmount; otherwise base rent of occupied rooms)
+    const baseOccupiedRent = activeProfiles.reduce((acc, curr) => acc + curr.monthlyRent, 0);
+    const expectedRentThisMonth = currentMonthTotalBilled > 0 ? currentMonthTotalBilled : baseOccupiedRent;
+
+    // Component totals all-time
+    const allWaterPurchases = await this.prisma.waterPurchase.findMany();
+    const totalWaterPurchasesAllTime = Number(
+      allWaterPurchases.reduce((acc, curr) => acc + curr.totalAmount, 0).toFixed(2),
+    );
+
+    const allCustomPurchases = await this.prisma.customPurchase.findMany();
+    const totalCustomPurchasesAllTime = Number(
+      allCustomPurchases.reduce((acc, curr) => acc + curr.totalAmount, 0).toFixed(2),
+    );
+
+    const allElectricityReadings = await this.prisma.electricityReading.findMany();
+    const totalElectricityAllTime = Number(
+      allElectricityReadings.reduce((acc, curr) => acc + (curr.totalCharge || 0), 0).toFixed(2),
+    );
 
     const electricityDashboard = await this.prisma.electricityReading.count({
       where: { yearBS: targetYear, monthBS: targetMonth },
     });
 
     const totalRooms = await this.prisma.room.count();
-    const occupiedRooms = await this.prisma.tenantProfile.count({ where: { status: 'ACTIVE' } });
-    const vacantRooms = totalRooms - occupiedRooms;
+    const occupiedRooms = activeProfiles.length;
+    const vacantRooms = Math.max(0, totalRooms - occupiedRooms);
 
     return {
       period: {
@@ -1001,16 +1065,42 @@ export class BillingService {
         nepaliHeader: this.nepaliCalendarService.formatMonthYearBS(targetYear, targetMonth),
       },
       stats: {
-        expectedRent,
-        collectedAmount,
-        outstandingAmount,
+        // Core summary
         totalCollectedAllTime,
+        currentMonthCollected,
         totalOutstandingAllTime,
+        expectedRent: expectedRentThisMonth,
+        outstandingAmount: totalOutstandingAllTime,
+        collectedAmount: currentMonthCollected,
+
+        // Detailed ledger reconciliation
+        totalVerifiedPaymentsAmount,
+        verifiedPaymentsCount,
+        totalAdvanceBalance,
+        totalBilledAllTime,
+        totalBilledCollectedAllTime,
+        currentMonthOutstanding,
+        currentMonthTotalBilled,
+
+        // Transaction counts
         pendingPaymentsCount,
+        pendingPaymentsAmount,
+        rejectedPaymentsCount,
+        allPaymentsCount,
+
+        // Component breakdown all-time
+        totalWaterPurchasesAllTime,
+        totalCustomPurchasesAllTime,
+        totalElectricityAllTime,
+
+        // Room occupancy
         electricityCompleted: `${electricityDashboard}/${totalRooms}`,
         totalRooms,
         occupiedRooms,
         vacantRooms,
+
+        // Reconciliation validation flag
+        isReconciled: Math.abs(totalVerifiedPaymentsAmount - (totalBilledCollectedAllTime + totalAdvanceBalance)) < 0.05,
       },
     };
   }

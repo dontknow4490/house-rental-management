@@ -48,12 +48,6 @@ enum PaymentStatus {
   REJECTED
 }
 
-enum BorrowingStatus {
-  OUTSTANDING
-  PARTIALLY_PAID
-  PAID
-}
-
 enum AdjustmentType {
   DISCOUNT
   CHARGE
@@ -95,8 +89,8 @@ model User {
   tenantProfile      TenantProfile?
   payments           Payment[]             @relation("TenantPayments")
   verifiedPayments   Payment[]             @relation("AdminVerifiedPayments")
-  borrowings         Borrowing[]
   bills              MonthlyBill[]
+  customPurchases    CustomPurchase[]      @relation("TenantCustomPurchases")
   maintenanceRequests MaintenanceRequest[]
   auditLogs          AuditLog[]
   notifications      Notification[]
@@ -116,6 +110,7 @@ model Room {
   tenantProfiles      TenantProfile[]
   electricityReadings ElectricityReading[]
   waterPurchases      WaterPurchase[]
+  customPurchases     CustomPurchase[]
   monthlyBills        MonthlyBill[]
   adjustments         Adjustment[]
   maintenanceRequests MaintenanceRequest[]
@@ -201,25 +196,6 @@ model WaterPurchase {
   @@map("water_purchases")
 }
 
-model Borrowing {
-  id                String          @id @default(uuid())
-  tenantId          String
-  tenant            User            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  amount            Float
-  outstandingAmount Float
-  borrowDateBS      String
-  borrowDateAD      DateTime        @default(now())
-  reason            String?
-  status            BorrowingStatus @default(OUTSTANDING)
-  repaidDateBS      String?
-  repaidDateAD      DateTime?
-  includeInBill     Boolean         @default(true)
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
-
-  @@map("borrowings")
-}
-
 model Adjustment {
   id        String         @id @default(uuid())
   tenantId  String
@@ -252,27 +228,54 @@ model MonthlyBill {
   rentAmount        Float
   internetAmount    Float
   electricityAmount Float
-  waterAmount       Float
-  garbageAmount     Float      @default(100)
-  borrowingAmount   Float      @default(0)
-  adjustmentsAmount Float      @default(0)
-  totalAmount       Float
-  paidAmount        Float      @default(0)
-  balanceDue        Float
-  status            BillStatus @default(UNPAID)
-  dueDateBS         String
-  correctionReason  String?
-  correctionHistory Json?
-  generatedAt       DateTime   @default(now())
-  updatedAt         DateTime   @updatedAt
+  waterAmount           Float
+  garbageAmount         Float      @default(100)
+  adjustmentsAmount     Float      @default(0)
+  customPurchasesAmount Float      @default(0)
+  totalAmount           Float
+  paidAmount            Float      @default(0)
+  balanceDue            Float
+  status                BillStatus @default(UNPAID)
+  dueDateBS             String
+  correctionReason      String?
+  correctionHistory     Json?
+  generatedAt           DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
 
-  payments       Payment[]
-  waterPurchases WaterPurchase[]
+  payments        Payment[]
+  waterPurchases  WaterPurchase[]
+  customPurchases CustomPurchase[]
 
   @@unique([tenantId, roomId, yearBS, monthBS])
   @@index([yearBS, monthBS])
   @@index([status])
   @@map("monthly_bills")
+}
+
+model CustomPurchase {
+  id             String       @id @default(uuid())
+  roomId         String
+  room           Room         @relation(fields: [roomId], references: [id])
+  tenantId       String?
+  tenant         User?        @relation("TenantCustomPurchases", fields: [tenantId], references: [id], onDelete: SetNull)
+  itemName       String
+  quantity       Int          @default(1)
+  unitPrice      Float
+  totalAmount    Float
+  yearBS         Int
+  monthBS        Int
+  purchaseDateBS String
+  purchaseDateAD DateTime     @default(now())
+  note           String?
+  isSettled      Boolean      @default(false)
+  billId         String?
+  bill           MonthlyBill? @relation(fields: [billId], references: [id], onDelete: SetNull)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([roomId, yearBS, monthBS])
+  @@index([tenantId])
+  @@map("custom_purchases")
 }
 
 model Payment {

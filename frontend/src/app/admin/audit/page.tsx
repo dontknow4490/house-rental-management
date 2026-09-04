@@ -2,6 +2,11 @@
 
 import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Card } from '@/components/ui/Card';
+import { SkeletonTable } from '@/components/ui/LoadingSkeleton';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { ShieldCheck, Search, Clock, User, Globe } from 'lucide-react';
 
 export default function AdminAuditPage() {
   const [logs, setLogs] = useState<any[]>([]);
@@ -12,7 +17,7 @@ export default function AdminAuditPage() {
     try {
       setLoading(true);
       const data = await api.get('/audit-logs');
-      setLogs(data);
+      setLogs(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error(err);
     } finally {
@@ -37,73 +42,101 @@ export default function AdminAuditPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
-        <div>
-          <h2 className="text-base font-bold text-slate-900">System Audit Log</h2>
-          <p className="text-xs text-slate-500">Immutable audit log of administrative actions and verifications</p>
-        </div>
+      {/* Page Header */}
+      <PageHeader
+        category="System Integrity"
+        title="Immutable Audit Log"
+        subtitle="Security timeline tracking administrative actions, payment verifications, and room modifications"
+      />
 
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Filter audit records..."
-          className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-slate-900 text-xs focus:outline-none focus:border-slate-900"
-        />
+      {/* Search Filter Bar */}
+      <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+        <div className="relative w-full max-w-sm">
+          <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400 pointer-events-none" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by action, user, or IP address..."
+            className="w-full pl-9 pr-3.5 py-1.5 rounded-xl border border-slate-300 text-slate-900 text-xs placeholder:text-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white"
+          />
+        </div>
+        <span className="text-xs text-slate-500 font-medium hidden sm:inline">
+          {filteredLogs.length} events logged
+        </span>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
-                <th className="px-4 py-2.5">Date / Time</th>
-                <th className="px-4 py-2.5">User</th>
-                <th className="px-4 py-2.5">Action</th>
-                <th className="px-4 py-2.5">Details</th>
-                <th className="px-4 py-2.5">IP Address</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-800 font-mono text-[11px]">
-              {loading ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-slate-400 font-sans text-xs">
-                    Loading audit trail...
-                  </td>
+      {/* Audit Log Table */}
+      {loading ? (
+        <SkeletonTable rows={8} cols={5} />
+      ) : filteredLogs.length === 0 ? (
+        <EmptyState
+          icon={<ShieldCheck className="w-6 h-6 text-indigo-500" />}
+          title="No audit records match your search"
+          description="Clear your filter to view all system events."
+        />
+      ) : (
+        <div className="bg-white border border-slate-200/80 rounded-2xl shadow-card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-50/80 border-b border-slate-200/80 text-slate-600 font-bold">
+                  <th className="px-4 py-3">Timestamp</th>
+                  <th className="px-4 py-3">Actor / User</th>
+                  <th className="px-4 py-3">Action</th>
+                  <th className="px-4 py-3">Event Details</th>
+                  <th className="px-4 py-3">IP Address</th>
                 </tr>
-              ) : filteredLogs.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-slate-400 font-sans text-xs">
-                    No audit logs yet
-                  </td>
-                </tr>
-              ) : (
-                filteredLogs.map((l) => (
-                  <tr key={l.id} className="hover:bg-slate-50/70 transition-colors">
-                    <td className="px-4 py-3 whitespace-nowrap text-slate-600">
-                      {new Date(l.createdAt).toLocaleString()}
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-800 font-medium">
+                {filteredLogs.map((l) => (
+                  <tr key={l.id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="px-4 py-3.5 font-mono text-slate-500 text-[11px] whitespace-nowrap">
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="w-3 h-3 text-slate-400" />
+                        <span>{new Date(l.createdAt).toLocaleString()}</span>
+                      </div>
                     </td>
-                    <td className="px-4 py-3 font-sans font-medium text-slate-900">
-                      {l.user?.fullName || l.username || 'System'}
+
+                    <td className="px-4 py-3.5 whitespace-nowrap">
+                      {l.user ? (
+                        <div className="flex items-center gap-1.5">
+                          <User className="w-3.5 h-3.5 text-indigo-500" />
+                          <div>
+                            <span className="font-bold text-slate-900">{l.user.fullName}</span>
+                            <span className="text-[10px] text-slate-500 font-mono block">
+                              @{l.user.username}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-slate-400 italic">System</span>
+                      )}
                     </td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-800 border border-slate-200">
+
+                    <td className="px-4 py-3.5">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-800 border border-slate-200 font-mono">
                         {l.action}
                       </span>
                     </td>
-                    <td className="px-4 py-3 font-sans text-slate-700 max-w-sm break-words">
-                      {l.details ? l.details : <span className="text-slate-400">-</span>}
+
+                    <td className="px-4 py-3.5 max-w-md text-slate-700 leading-relaxed">
+                      {l.details || <span className="text-slate-400 italic">&mdash;</span>}
                     </td>
-                    <td className="px-4 py-3 text-slate-500 font-mono text-[11px]">
-                      {l.ipAddress ? l.ipAddress : <span className="text-slate-400">-</span>}
+
+                    <td className="px-4 py-3.5 font-mono text-slate-500 text-[11px] whitespace-nowrap">
+                      <div className="flex items-center gap-1">
+                        <Globe className="w-3 h-3 text-slate-400" />
+                        <span>{l.ipAddress || '127.0.0.1'}</span>
+                      </div>
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

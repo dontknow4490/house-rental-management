@@ -133,7 +133,9 @@ export const BS_MONTH_DAYS: Record<number, number[]> = {
 };
 
 export function formatCurrencyNPR(amount: number): string {
-  const formatted = new Intl.NumberFormat('en-IN').format(amount);
+  const parsed = Number(amount);
+  const num = typeof amount === 'number' && Number.isFinite(amount) ? amount : (Number.isFinite(parsed) ? parsed : 0);
+  const formatted = new Intl.NumberFormat('en-IN').format(num);
   return `Rs. ${formatted}`;
 }
 

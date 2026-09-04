@@ -11,7 +11,6 @@ import { RoomsModule } from './rooms/rooms.module';
 import { TenantsModule } from './tenants/tenants.module';
 import { ElectricityModule } from './electricity/electricity.module';
 import { WaterModule } from './water/water.module';
-import { BorrowingModule } from './borrowing/borrowing.module';
 import { AdjustmentsModule } from './adjustments/adjustments.module';
 import { BillingModule } from './billing/billing.module';
 import { PaymentsModule } from './payments/payments.module';
@@ -19,6 +18,7 @@ import { DocumentsModule } from './documents/documents.module';
 import { NoticesModule } from './notices/notices.module';
 import { MaintenanceModule } from './maintenance/maintenance.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { CustomPurchasesModule } from './custom-purchases/custom-purchases.module';
 
 @Module({
   imports: [
@@ -43,7 +43,6 @@ import { NotificationsModule } from './notifications/notifications.module';
     TenantsModule,
     ElectricityModule,
     WaterModule,
-    BorrowingModule,
     AdjustmentsModule,
     BillingModule,
     PaymentsModule,
@@ -51,6 +50,7 @@ import { NotificationsModule } from './notifications/notifications.module';
     NoticesModule,
     MaintenanceModule,
     NotificationsModule,
+    CustomPurchasesModule,
   ],
   providers: [
     {

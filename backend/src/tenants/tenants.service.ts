@@ -26,6 +26,7 @@ export interface CreateTenantDto {
 }
 
 export interface UpdateTenantDto {
+  username?: string;
   fullName?: string;
   phone?: string;
   numberOfPeople?: number;
@@ -141,9 +142,6 @@ export class TenantsService {
           orderBy: { generatedAt: 'desc' },
         },
         payments: {
-          orderBy: { createdAt: 'desc' },
-        },
-        borrowings: {
           orderBy: { createdAt: 'desc' },
         },
       },
@@ -292,9 +290,28 @@ export class TenantsService {
       }
     }
 
+    // Handle username update if provided
+    let newUsername = user.username;
+    if (dto.username && dto.username.trim() !== '') {
+      const cleanUsername = dto.username.trim().toLowerCase();
+      if (cleanUsername !== user.username) {
+        const existing = await this.prisma.user.findFirst({
+          where: {
+            username: cleanUsername,
+            id: { not: userId },
+          },
+        });
+        if (existing) {
+          throw new ConflictException(`Username "${cleanUsername}" is already taken.`);
+        }
+        newUsername = cleanUsername;
+      }
+    }
+
     const updatedUser = await this.prisma.user.update({
       where: { id: userId },
       data: {
+        username: newUsername,
         fullName: dto.fullName !== undefined ? dto.fullName.trim() : user.fullName,
         phone: dto.phone !== undefined ? dto.phone?.trim() || null : user.phone,
         tenantProfile: user.tenantProfile
@@ -523,16 +540,16 @@ export class TenantsService {
     const isAlreadyArchived = user.tenantProfile?.status === 'ARCHIVED';
 
     // Count dependent records
-    const [billsCount, paymentsCount, waterCount, elecCount, borrowCount, adjCount] = await Promise.all([
+    const [billsCount, paymentsCount, waterCount, elecCount, adjCount, customCount] = await Promise.all([
       this.prisma.monthlyBill.count({ where: { tenantId: userId } }),
       this.prisma.payment.count({ where: { tenantId: userId } }),
       this.prisma.waterPurchase.count({ where: { tenantId: userId } }),
       this.prisma.electricityReading.count({ where: { tenantId: userId } }),
-      this.prisma.borrowing.count({ where: { tenantId: userId } }),
       this.prisma.adjustment.count({ where: { tenantId: userId } }),
+      this.prisma.customPurchase.count({ where: { tenantId: userId } }),
     ]);
 
-    const totalFinancialRecords = billsCount + paymentsCount + waterCount + elecCount + borrowCount + adjCount;
+    const totalFinancialRecords = billsCount + paymentsCount + waterCount + elecCount + adjCount + customCount;
 
     // Ensure room status is set to VACANT if this tenant was the only active one
     if (user.tenantProfile?.roomId) {
@@ -550,20 +567,25 @@ export class TenantsService {
     // If tenant is already ARCHIVED or has zero financial records → permanent delete (purge)
     if (isAlreadyArchived || totalFinancialRecords === 0) {
       // Permanently delete all related records that don't cascade automatically.
-      // Prisma cascade handles: MonthlyBill, Payment, DigitalReceipt, Borrowing, Notification
-      // We must manually delete: WaterPurchase, ElectricityReading, Adjustment, MaintenanceRequest
       await this.prisma.waterPurchase.deleteMany({ where: { tenantId: userId } });
       await this.prisma.electricityReading.deleteMany({ where: { tenantId: userId } });
       await this.prisma.adjustment.deleteMany({ where: { tenantId: userId } });
+      await this.prisma.customPurchase.deleteMany({ where: { tenantId: userId } });
       await this.prisma.notification.deleteMany({ where: { userId } });
       await this.prisma.maintenanceRequest.deleteMany({ where: { tenantId: userId } });
+
+      // Disassociate audit logs to prevent foreign key restriction on user deletion
+      await this.prisma.auditLog.updateMany({
+        where: { userId },
+        data: { userId: null },
+      });
 
       // Delete tenant profile
       if (user.tenantProfile) {
         await this.prisma.tenantProfile.delete({ where: { userId } });
       }
 
-      // Delete user (cascades to MonthlyBill, Payment, DigitalReceipt, Borrowing)
+      // Delete user (cascades to MonthlyBill, Payment, DigitalReceipt)
       await this.prisma.user.delete({ where: { id: userId } });
 
       const reason = isAlreadyArchived

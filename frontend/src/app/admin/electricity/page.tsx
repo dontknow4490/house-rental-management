@@ -4,6 +4,23 @@ import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { formatCurrencyNPR, getTodayBS, NEPALI_MONTH_NAMES } from '@/lib/nepali-date';
 import { ReadingEntryModal } from '@/components/ReadingEntryModal';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Button } from '@/components/ui/Button';
+import { StatCard } from '@/components/ui/StatCard';
+import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
+import { SkeletonCard, SkeletonTable } from '@/components/ui/LoadingSkeleton';
+import {
+  Zap,
+  CheckCircle2,
+  AlertCircle,
+  Calendar,
+  Home,
+  TrendingUp,
+  RefreshCw,
+  Gauge,
+  ArrowRight,
+  Clock,
+} from 'lucide-react';
 
 export default function AdminElectricityPage() {
   const [data, setData] = useState<any>(null);
@@ -36,9 +53,9 @@ export default function AdminElectricityPage() {
   };
 
   useEffect(() => {
-    const today = getTodayBS();
-    setSelectedYearBS(today.yearBS);
-    setSelectedMonthBS(today.monthBS);
+    const todayBS = getTodayBS();
+    setSelectedYearBS(todayBS.yearBS);
+    setSelectedMonthBS(todayBS.monthBS);
   }, []);
 
   useEffect(() => {
@@ -47,273 +64,296 @@ export default function AdminElectricityPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header & Filter */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
-        <div>
-          <h2 className="text-base font-bold text-slate-900">Electricity Sub-Meters</h2>
-          <p className="text-xs text-slate-500">
-            Log monthly readings per room (Rate: Rs. {data?.unitRate || 15}/unit)
-          </p>
-        </div>
+      {/* Page Header */}
+      <PageHeader
+        category="Utilities"
+        title="Electricity Sub-Meters"
+        subtitle={`Track room sub-meters and calculate consumption (Rate: Rs. ${
+          data?.unitRate || 15
+        }/unit)`}
+        actions={
+          <div className="flex items-center gap-2 text-xs">
+            <select
+              value={selectedYearBS}
+              onChange={(e) => setSelectedYearBS(Number(e.target.value))}
+              className="px-3 py-1.5 rounded-xl border border-slate-300 bg-white text-slate-900 font-bold focus:outline-none focus:border-indigo-500"
+            >
+              {[2080, 2081, 2082, 2083, 2084, 2085].map((y) => (
+                <option key={y} value={y}>
+                  {y} BS
+                </option>
+              ))}
+            </select>
+            <select
+              value={selectedMonthBS}
+              onChange={(e) => setSelectedMonthBS(Number(e.target.value))}
+              className="px-3 py-1.5 rounded-xl border border-slate-300 bg-white text-slate-900 font-bold focus:outline-none focus:border-indigo-500"
+            >
+              {NEPALI_MONTH_NAMES.map((name, idx) => (
+                <option key={idx + 1} value={idx + 1}>
+                  {name}
+                </option>
+              ))}
+            </select>
+            <Button variant="outline" size="sm" onClick={loadStatus}>
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Refresh</span>
+            </Button>
+          </div>
+        }
+      />
 
-        {/* Period Selector */}
-        <div className="flex items-center gap-2 text-xs">
-          <select
-            value={selectedYearBS}
-            onChange={(e) => setSelectedYearBS(Number(e.target.value))}
-            className="px-2 py-1.5 rounded border border-slate-300 bg-white text-slate-900 focus:outline-none focus:border-slate-900 font-medium"
-          >
-            {[2080, 2081, 2082, 2083, 2084, 2085].map((y) => (
-              <option key={y} value={y}>
-                {y} BS
-              </option>
-            ))}
-          </select>
-          <select
-            value={selectedMonthBS}
-            onChange={(e) => setSelectedMonthBS(Number(e.target.value))}
-            className="px-2 py-1.5 rounded border border-slate-300 bg-white text-slate-900 focus:outline-none focus:border-slate-900 font-medium"
-          >
-            {NEPALI_MONTH_NAMES.map((name, idx) => (
-              <option key={idx + 1} value={idx + 1}>
-                {name}
-              </option>
-            ))}
-          </select>
-          <button
-            onClick={loadStatus}
-            className="px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-medium transition"
-          >
-            Refresh
-          </button>
-        </div>
+      {/* Summary Metrics */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <StatCard
+          variant="primary"
+          title="Updated Readings"
+          value={`${data?.updatedRooms || 0} / ${data?.totalRooms ?? 0}`}
+          badge={data?.totalRooms && data?.updatedRooms >= data?.totalRooms ? '100% Done' : 'In Progress'}
+          icon={<Gauge className="w-5 h-5" />}
+          subtitle="Rooms recorded for this month"
+        />
+
+        <StatCard
+          variant="warning"
+          title="Total Units Consumed"
+          value={`${(data?.totalUnitsConsumed || 0).toFixed(1)} Units`}
+          badge="Monthly Total"
+          icon={<Zap className="w-5 h-5" />}
+          subtitle="Net units across all sub-meters"
+        />
+
+        <StatCard
+          variant="success"
+          title="Total Electricity Bill"
+          value={formatCurrencyNPR(data?.totalCost || 0)}
+          badge={`Rs. ${data?.unitRate || 15}/unit`}
+          icon={<TrendingUp className="w-5 h-5" />}
+          subtitle="Will auto-attach to bills"
+        />
+
+        <StatCard
+          variant="neutral"
+          title="Sub-Meter Tariff"
+          value={`Rs. ${data?.unitRate || 15}`}
+          badge="Standard NEA"
+          icon={<Calendar className="w-5 h-5" />}
+          subtitle="Rate configured in Settings"
+        />
       </div>
 
-      {/* Summary Strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-        <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm">
-          <div className="text-slate-500">Updated Rooms</div>
-          <div className="font-semibold text-slate-900 mt-1">
-            {data?.updatedRooms || 0} / {data?.totalRooms || 6}
-          </div>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm">
-          <div className="text-slate-500">Pending Readings</div>
-          <div className="font-semibold text-amber-700 mt-1">
-            {data?.pendingRooms || 0}
-          </div>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm">
-          <div className="text-slate-500">Total Units</div>
-          <div className="font-semibold text-slate-900 mt-1">
-            {(data?.totalUnitsConsumed || 0).toFixed(1)} units
-          </div>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm">
-          <div className="text-slate-500">Total Electricity Amount</div>
-          <div className="font-semibold text-slate-900 mt-1">
-            {formatCurrencyNPR(data?.totalElectricityAmount || data?.totalElectricityCharge || 0)}
-          </div>
-        </div>
-      </div>
-
-      {/* Monthly Readings Table */}
-      <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-          <h3 className="font-semibold text-slate-900 text-xs flex items-center gap-2">
-            <span>Meter Readings for {selectedYearBS} {NEPALI_MONTH_NAMES[selectedMonthBS - 1]}</span>
-            {isFuturePeriod && (
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                Future Month
-              </span>
-            )}
+      {/* Room Sub-Meters Grid */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-bold text-slate-900">
+            Room Sub-Meter Loggers ({NEPALI_MONTH_NAMES[selectedMonthBS - 1]} {selectedYearBS})
           </h3>
+          {isFuturePeriod && (
+            <span className="text-xs text-amber-700 font-semibold bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200">
+              Future Month (Read-Only)
+            </span>
+          )}
         </div>
 
-        {isFuturePeriod && (
-          <div className="p-3 bg-amber-50 border-b border-amber-200 text-amber-900 text-xs flex items-center gap-2">
-            <span className="font-bold">Note:</span>
-            <span>Electricity meter readings cannot be entered for future months. Select the current month ({today.yearBS} {NEPALI_MONTH_NAMES[today.monthBS - 1]}) or a past month.</span>
+        {loading ? (
+          <SkeletonCard count={6} />
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {(data?.rooms || []).map((room: any) => {
+              const isUpdated = room.isUpdated;
+
+              return (
+                <div
+                  key={room.roomId}
+                  className={`rounded-2xl border p-5 shadow-card transition-all duration-200 hover:shadow-card-hover hover:-translate-y-0.5 flex flex-col justify-between ${
+                    isUpdated
+                      ? 'border-emerald-200/90 bg-gradient-to-br from-emerald-50/20 via-white to-white'
+                      : 'border-amber-200/90 bg-gradient-to-br from-amber-50/20 via-white to-white'
+                  }`}
+                >
+                  <div>
+                    {/* Header */}
+                    <div className="flex items-start justify-between gap-2 pb-3 border-b border-slate-100">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-base font-extrabold text-slate-900">
+                            Room {room.roomNumber < 10 ? `0${room.roomNumber}` : room.roomNumber}
+                          </span>
+                          {isUpdated ? (
+                            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                          ) : (
+                            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                          )}
+                        </div>
+                        <span className="text-xs text-slate-500 font-medium">
+                          {room.tenantName ? (
+                            room.tenantName
+                          ) : (
+                            <span className="text-slate-400 italic">No tenant assigned</span>
+                          )}
+                        </span>
+                      </div>
+
+                      {isUpdated ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <CheckCircle2 className="w-3 h-3" />
+                          <span>Logged</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                          <AlertCircle className="w-3 h-3" />
+                          <span>Pending Reading</span>
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Meter Readings Comparison */}
+                    <div className="py-4 space-y-2.5 text-xs">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                            Previous Reading
+                          </span>
+                          <span className="font-mono font-bold text-slate-800 text-sm mt-0.5 block">
+                            {room.previousReading ?? 0} units
+                          </span>
+                        </div>
+
+                        <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                            Current Reading
+                          </span>
+                          <span
+                            className={`font-mono font-bold text-sm mt-0.5 block ${
+                              isUpdated ? 'text-indigo-900' : 'text-slate-400 italic text-xs'
+                            }`}
+                          >
+                            {isUpdated ? `${room.currentReading} units` : 'Not recorded'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Calculated Units & Cost */}
+                      <div className="p-3 rounded-xl bg-slate-50/80 border border-slate-100 flex items-center justify-between">
+                        <div>
+                          <span className="text-[10px] font-semibold text-slate-500 uppercase block">
+                            Units Consumed
+                          </span>
+                          <span className="font-mono font-extrabold text-slate-900 text-sm">
+                            {isUpdated ? `${(room.unitsConsumed || 0).toFixed(1)} units` : '0 units'}
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[10px] font-semibold text-slate-500 uppercase block">
+                            Calculated Cost
+                          </span>
+                          <span className="font-mono font-extrabold text-amber-900 text-sm">
+                            {formatCurrencyNPR(room.totalCost || 0)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                    <span className="text-[11px] text-slate-400">
+                      {room.readingDateBS ? `Logged on ${room.readingDateBS}` : 'Awaiting input'}
+                    </span>
+                    <Button
+                      variant={isUpdated ? 'outline' : 'primary'}
+                      size="xs"
+                      disabled={isFuturePeriod}
+                      onClick={() =>
+                        setSelectedRoom({
+                          roomId: room.roomId,
+                          roomNumber: room.roomNumber,
+                          roomName: `Room ${room.roomNumber}`,
+                          tenantName: room.tenantName || 'Resident',
+                          previousReading: room.previousReading ?? 0,
+                          currentReading: room.currentReading,
+                          unitRate: data?.unitRate || 15,
+                          isBeforeMoveIn: room.isBeforeMoveIn,
+                          moveInDateBS: room.moveInDateBS,
+                        })
+                      }
+                    >
+                      <Zap className="w-3.5 h-3.5" />
+                      <span>{isUpdated ? 'Edit Reading' : 'Log Reading'}</span>
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
-              <tr>
-                <th className="px-4 py-2.5">Room</th>
-                <th className="px-4 py-2.5">Tenant</th>
-                <th className="px-4 py-2.5">Prev Reading</th>
-                <th className="px-4 py-2.5">Curr Reading</th>
-                <th className="px-4 py-2.5">Units</th>
-                <th className="px-4 py-2.5">Rate</th>
-                <th className="px-4 py-2.5">Total Charge</th>
-                <th className="px-4 py-2.5">Status</th>
-                <th className="px-4 py-2.5 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-700">
-              {loading ? (
-                <tr>
-                  <td colSpan={9} className="px-4 py-6 text-center text-slate-400">
-                    Loading electricity data...
-                  </td>
-                </tr>
-              ) : !data?.rooms || data.rooms.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-slate-400">
-                    No records found
-                  </td>
-                </tr>
-              ) : (
-                data.rooms.map((r: any) => {
-                  const isRecorded = r.isLogged || r.status === 'RECORDED';
-                  return (
-                    <tr key={r.roomId} className="hover:bg-slate-50/50">
-                      <td className="px-4 py-3 font-semibold text-slate-900">
-                        Room {r.roomNumber}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">
-                        {r.tenantName || '—'}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-slate-600">
-                        {r.previousReading ?? 0}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-slate-900">
-                        {isRecorded && r.currentReading !== null && r.currentReading !== undefined ? (
-                          <span className="font-semibold">{r.currentReading}</span>
-                        ) : (
-                          <span className="text-slate-400 italic font-sans">Pending</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 font-mono">
-                        {isRecorded && r.unitsConsumed !== null && r.unitsConsumed !== undefined ? (
-                          `${r.unitsConsumed} units`
-                        ) : (
-                          <span className="text-slate-400 italic font-sans">Not entered</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 font-mono">
-                        Rs. {r.unitRate || 15}
-                      </td>
-                      <td className="px-4 py-3 font-mono font-medium text-slate-900">
-                        {isRecorded && r.totalAmount !== null && r.totalAmount !== undefined ? (
-                          formatCurrencyNPR(r.totalAmount)
-                        ) : (
-                          <span className="text-slate-400 italic font-sans">Not entered</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        {isFuturePeriod ? (
-                          <span className="inline-flex px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-400 border border-slate-200">
-                            Future
-                          </span>
-                        ) : r.isBeforeMoveIn ? (
-                          <span className="inline-flex px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-500 border border-slate-200" title={`Tenant moved in on ${r.moveInDateBS || r.moveInPeriodText}`}>
-                            Before Move-in
-                          </span>
-                        ) : isRecorded ? (
-                          <span className="inline-flex px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            Recorded
-                          </span>
-                        ) : (
-                          <span className="inline-flex px-2 py-0.5 rounded text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
-                            Pending
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {isFuturePeriod ? (
-                          <button
-                            disabled
-                            title="Cannot enter readings for future periods"
-                            className="px-2.5 py-1 text-[11px] font-medium rounded border border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed"
-                          >
-                            Future Month
-                          </button>
-                        ) : r.isBeforeMoveIn ? (
-                          <button
-                            disabled
-                            title={`Tenant moved in on ${r.moveInDateBS || r.moveInPeriodText}`}
-                            className="px-2.5 py-1 text-[11px] font-medium rounded border border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed"
-                          >
-                            Before Move-in
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => setSelectedRoom(r)}
-                            className="px-2.5 py-1 text-[11px] font-medium rounded border border-slate-300 hover:bg-slate-100 text-slate-700 transition"
-                          >
-                            {isRecorded ? 'Edit Reading' : 'Enter Reading'}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
       </div>
 
-      {/* Meter Reading History Table (Visual Rollover Verification) */}
-      <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-          <div>
-            <h3 className="font-semibold text-slate-900 text-xs">Meter Reading History & Rollover Log</h3>
-            <p className="text-[11px] text-slate-500">Historical recorded meter readings across all rooms</p>
-          </div>
-          <span className="text-[11px] font-medium text-slate-600">{history.length} Logged Record(s)</span>
-        </div>
+      {/* Historical Readings Log */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Historical Electricity Readings Log</CardTitle>
+        </CardHeader>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
-                <th className="px-4 py-2.5">Period (BS)</th>
-                <th className="px-4 py-2.5">Room</th>
-                <th className="px-4 py-2.5">Previous</th>
-                <th className="px-4 py-2.5">Current</th>
-                <th className="px-4 py-2.5">Units</th>
-                <th className="px-4 py-2.5">Rate</th>
-                <th className="px-4 py-2.5">Charge</th>
-                <th className="px-4 py-2.5">Recorded On</th>
+              <tr className="bg-slate-50/80 border-b border-slate-200/80 text-slate-600 font-bold">
+                <th className="px-4 py-3">Room & Tenant</th>
+                <th className="px-4 py-3">Period BS</th>
+                <th className="px-4 py-3">Previous Reading</th>
+                <th className="px-4 py-3">Current Reading</th>
+                <th className="px-4 py-3">Units Used</th>
+                <th className="px-4 py-3">Rate</th>
+                <th className="px-4 py-3">Total Cost</th>
+                <th className="px-4 py-3">Entry Date</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-800">
+            <tbody className="divide-y divide-slate-100 text-slate-800 font-medium">
               {history.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-6 text-center text-slate-400 italic">
-                    No historical electricity meter readings logged yet.
+                  <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
+                    No historical readings recorded yet.
                   </td>
                 </tr>
               ) : (
                 history.map((h: any) => (
-                  <tr key={h.id} className="hover:bg-slate-50/70 transition-colors">
-                    <td className="px-4 py-2.5 font-medium text-slate-900">
-                      {h.yearBS} {h.monthNameBS}
+                  <tr key={h.id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="px-4 py-3.5 font-bold text-slate-900">
+                      Room {h.room?.roomNumber || h.roomNumber}
                     </td>
-                    <td className="px-4 py-2.5 font-medium">
-                      Room {h.room?.roomNumber || h.roomId}
+                    <td className="px-4 py-3.5 font-mono">
+                      {h.monthNameBS} {h.yearBS} BS
                     </td>
-                    <td className="px-4 py-2.5 font-mono">{h.previousReading}</td>
-                    <td className="px-4 py-2.5 font-mono font-semibold text-slate-900">{h.currentReading}</td>
-                    <td className="px-4 py-2.5 font-mono">{h.unitsUsed} units</td>
-                    <td className="px-4 py-2.5 font-mono text-slate-600">Rs. {h.unitRate}</td>
-                    <td className="px-4 py-2.5 font-mono font-medium text-slate-900">{formatCurrencyNPR(h.totalCharge)}</td>
-                    <td className="px-4 py-2.5 text-slate-500">{h.readingDateBS || '—'}</td>
+                    <td className="px-4 py-3.5 font-mono text-slate-600">
+                      {h.previousReading} units
+                    </td>
+                    <td className="px-4 py-3.5 font-mono font-bold text-slate-900">
+                      {h.currentReading} units
+                    </td>
+                    <td className="px-4 py-3.5 font-mono font-bold text-indigo-700">
+                      {(h.unitsConsumed || 0).toFixed(1)} units
+                    </td>
+                    <td className="px-4 py-3.5 font-mono text-slate-600">
+                      Rs. {h.rate || 15}
+                    </td>
+                    <td className="px-4 py-3.5 font-mono font-extrabold text-slate-900">
+                      {formatCurrencyNPR(h.totalCost)}
+                    </td>
+                    <td className="px-4 py-3.5 text-slate-500 font-mono text-[11px]">
+                      {h.readingDateBS || '—'}
+                    </td>
                   </tr>
                 ))
               )}
             </tbody>
           </table>
         </div>
-      </div>
+      </Card>
 
       {/* Reading Entry Modal */}
       {selectedRoom && (
         <ReadingEntryModal
-          isOpen={!!selectedRoom}
+          isOpen={true}
           onClose={() => setSelectedRoom(null)}
           onSuccess={loadStatus}
           room={selectedRoom}

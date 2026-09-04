@@ -50,6 +50,7 @@ backend/uploads/*
 backups/
 *.sql
 *.sql.gz
+!backend/prisma/migrations/**/*.sql
 
 # System & Package Logs
 *.log

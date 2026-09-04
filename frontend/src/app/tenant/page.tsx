@@ -354,10 +354,10 @@ export default function TenantDashboardPage() {
                           <span className="font-mono font-semibold text-slate-900">{formatCurrencyNPR(b.waterAmount)}</span>
                         </div>
                       )}
-                      {b.borrowingAmount > 0 && (
+                      {b.customPurchasesAmount > 0 && (
                         <div className="flex justify-between py-1 border-b border-slate-100">
-                          <span>Borrowed Money Included</span>
-                          <span className="font-mono font-semibold text-slate-900">{formatCurrencyNPR(b.borrowingAmount)}</span>
+                          <span>Custom Purchases / Extra Items</span>
+                          <span className="font-mono font-semibold text-slate-900">{formatCurrencyNPR(b.customPurchasesAmount)}</span>
                         </div>
                       )}
                       {b.adjustmentsAmount !== 0 && (

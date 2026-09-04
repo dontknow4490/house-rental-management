@@ -43,6 +43,9 @@ async function bootstrap() {
   // Set global API prefix
   app.setGlobalPrefix('api');
 
+  // Enable trust proxy for reverse proxies (Nginx/Cloudflare)
+  app.set('trust proxy', 1);
+
   // Configure Helmet security HTTP headers
   app.use(
     helmet({

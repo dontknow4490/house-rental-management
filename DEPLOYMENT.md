@@ -1,32 +1,90 @@
-# Future Deployment Guide (भविष्यको तैनाथी योजना)
+# Production VPS Deployment Guide (Docker Compose + Nginx + Let's Encrypt)
 
-> **Important**: This application is currently configured for private local network operation. Do NOT deploy to the public internet until you decide to do so and have completed all security preparations.
+> **Production Setup Overview**: Single Linux VPS hosting Next.js frontend, NestJS backend, PostgreSQL database with persistent volume, Nginx reverse proxy, and Let's Encrypt HTTPS SSL certificates.
 
 ---
 
-## What Will Be Required for Public Cloud Deployment
+## 1. Prerequisites on Linux VPS
+Ensure your VPS (Ubuntu 22.04 LTS / 24.04 LTS recommended) has Docker and Docker Compose installed:
+```bash
+sudo apt update && sudo apt install -y docker.io docker-compose-v2 certbot
+sudo systemctl enable --now docker
+```
 
-When you are ready to deploy this system publicly on a VPS (e.g. DigitalOcean, AWS EC2, or a Linux server):
+---
 
-### 1. Domain & SSL/TLS Certificates
-- A domain or subdomain (e.g., `rental.yourdomain.com`).
-- Free SSL certificate via Let's Encrypt / Certbot (`https://`).
+## 2. Environment Configuration
+Create a production `.env` file in the project root directory:
+```bash
+cat << 'EOF' > .env
+# Database Credentials
+POSTGRES_USER=house_rental_admin
+POSTGRES_PASSWORD=$(openssl rand -hex 16)
+POSTGRES_DB=house_rental_db
+DATABASE_URL=postgresql://house_rental_admin:${POSTGRES_PASSWORD}@postgres:5432/house_rental_db?schema=public
 
-### 2. Reverse Proxy (Nginx / Caddy)
-- Configure Nginx to proxy `https://rental.yourdomain.com` to Next.js (port 3000) and `/api` to NestJS (port 4000).
-- Enforce HTTPS and secure cookie headers.
+# Application Environment
+NODE_ENV=production
+PORT=4000
+FRONTEND_URL=https://rental.yourdomain.com
+ALLOW_DESTRUCTIVE_SEED=false
 
-### 3. Production Environment Configuration
-- Generate a cryptographically strong `JWT_SECRET` (e.g. `openssl rand -hex 32`).
-- Update `DATABASE_URL` with a production PostgreSQL connection string.
-- Set `NODE_ENV=production`.
+# Cryptographic JWT Secret
+JWT_SECRET=$(openssl rand -hex 32)
+JWT_EXPIRES_IN=7d
 
-### 4. Process Management
-- Use **PM2** or **Docker Compose** on the server to ensure Next.js and NestJS restart automatically on reboot:
-  ```bash
-  pm2 start dist/src/main.js --name house-rental-api
-  pm2 start npm --name house-rental-ui -- start
-  ```
+# Initial Setup Admin Account
+INITIAL_ADMIN_USERNAME=admin_prod
+INITIAL_ADMIN_PASSWORD=$(openssl rand -base64 16)
+EOF
+```
 
-### 5. Automated Cloud Backup Cron
-- Set up an automated daily cron job to run `pg_dump` and upload encrypted backups to S3 or a secondary backup server.
+---
+
+## 3. SSL / TLS Certificate Setup with Let's Encrypt
+
+1. **Temporary HTTP startup for ACME challenge**:
+   ```bash
+   docker compose -f docker-compose.prod.yml up -d nginx
+   ```
+2. **Generate Certificate via Certbot**:
+   ```bash
+   sudo certbot certonly --webroot -w ./certbot/www -d rental.yourdomain.com --email admin@yourdomain.com --agree-tos --no-eff-email
+   ```
+3. **Activate HTTPS in `nginx.conf`**:
+   Uncomment the HTTPS block in `nginx.conf` and replace `rental.yourdomain.com` with your real domain.
+
+---
+
+## 4. Build & Launch Production Containers
+
+Start the multi-container stack in detached mode:
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+### What happens automatically on startup:
+1. `postgres` starts and initializes health checks.
+2. `backend` waits for PostgreSQL health, executes `npx prisma migrate deploy` non-destructively, and runs NestJS on port 4000.
+3. `frontend` builds Next.js assets and starts server on port 3000.
+4. `nginx` proxies traffic:
+   - `https://rental.yourdomain.com/` -> Next.js Frontend
+   - `https://rental.yourdomain.com/api/` -> NestJS Backend
+   - `https://rental.yourdomain.com/uploads/` -> Static uploads (QR, proofs, maintenance photos)
+   - `https://rental.yourdomain.com/uploads/private/` -> **403 Forbidden (Blocked from public static access)**
+
+---
+
+## 5. Automated Daily Database Backups
+
+Add a daily cron job (`crontab -e`) to back up PostgreSQL to `./backups/`:
+```bash
+0 2 * * * docker exec house_rental_postgres_prod pg_dump -U house_rental_admin -d house_rental_db | gzip > /var/backups/house_rental_$(date +\%Y\%m\%d).sql.gz
+```
+
+---
+
+## 6. Maintenance & Log Monitoring
+- **View Container Status**: `docker compose -f docker-compose.prod.yml ps`
+- **View Live Backend Logs**: `docker compose -f docker-compose.prod.yml logs -f backend`
+- **Restart Application**: `docker compose -f docker-compose.prod.yml restart`

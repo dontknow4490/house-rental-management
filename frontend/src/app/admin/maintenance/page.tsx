@@ -3,11 +3,30 @@
 import React, { useEffect, useState } from 'react';
 import { api, getFileUrl } from '@/lib/api';
 import { useToast } from '@/lib/toast-context';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
+import { StatCard } from '@/components/ui/StatCard';
+import { StatusBadge } from '@/components/StatusBadge';
+import { SkeletonTable } from '@/components/ui/LoadingSkeleton';
+import { EmptyState } from '@/components/ui/EmptyState';
+import {
+  Wrench,
+  AlertCircle,
+  Clock,
+  CheckCircle2,
+  Calendar,
+  Image as ImageIcon,
+  MessageSquare,
+  ExternalLink,
+  Filter,
+} from 'lucide-react';
 
 export default function AdminMaintenancePage() {
   const toast = useToast();
   const [requests, setRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filterStatus, setFilterStatus] = useState<string>('');
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [notesModalOpen, setNotesModalOpen] = useState(false);
   const [selectedReq, setSelectedReq] = useState<any>(null);
@@ -17,7 +36,7 @@ export default function AdminMaintenancePage() {
     try {
       setLoading(true);
       const data = await api.get('/maintenance');
-      setRequests(data);
+      setRequests(Array.isArray(data) ? data : []);
     } catch (err: any) {
       toast.error(err.message || 'Failed to load maintenance requests');
     } finally {
@@ -56,201 +75,312 @@ export default function AdminMaintenancePage() {
     }
   };
 
+  const pendingCount = requests.filter((r) => r.status === 'PENDING').length;
+  const inProgressCount = requests.filter((r) => r.status === 'IN_PROGRESS').length;
+  const resolvedCount = requests.filter((r) => r.status === 'RESOLVED').length;
+
+  const filteredRequests = requests.filter((r) => {
+    if (!filterStatus) return true;
+    return r.status === filterStatus;
+  });
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
-        <div>
-          <h2 className="text-base font-bold text-slate-900">Maintenance & Repairs</h2>
-          <p className="text-xs text-slate-500">Track and resolve repair requests submitted by tenants</p>
+      {/* Page Header */}
+      <PageHeader
+        category="Operations"
+        title="Maintenance & Repairs"
+        subtitle="Track repair tickets, inspect reported photos, coordinate technicians, and log resolution notes"
+      />
+
+      {/* Summary Metrics */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <StatCard
+          variant={pendingCount > 0 ? 'warning' : 'neutral'}
+          title="Pending Requests"
+          value={pendingCount}
+          badge={pendingCount > 0 ? 'Needs Attention' : 'Clear'}
+          icon={<AlertCircle className="w-5 h-5" />}
+          subtitle="Awaiting technician review"
+        />
+
+        <StatCard
+          variant="primary"
+          title="In Progress"
+          value={inProgressCount}
+          badge="Under Repair"
+          icon={<Wrench className="w-5 h-5" />}
+          subtitle="Work currently underway"
+        />
+
+        <StatCard
+          variant="success"
+          title="Resolved Tickets"
+          value={resolvedCount}
+          badge="Completed"
+          icon={<CheckCircle2 className="w-5 h-5" />}
+          subtitle="Fixed and confirmed"
+        />
+
+        <StatCard
+          variant="neutral"
+          title="Total Maintenance Log"
+          value={requests.length}
+          badge="All Time"
+          icon={<Clock className="w-5 h-5" />}
+          subtitle="Lifetime ticket records"
+        />
+      </div>
+
+      {/* Filter Toolbar */}
+      <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+        <div className="flex items-center gap-1.5 overflow-x-auto text-xs">
+          <button
+            type="button"
+            onClick={() => setFilterStatus('')}
+            className={`px-3.5 py-1.5 rounded-xl font-bold transition-all ${
+              filterStatus === '' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <span>All Requests ({requests.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setFilterStatus('PENDING')}
+            className={`px-3.5 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 ${
+              filterStatus === 'PENDING'
+                ? 'bg-amber-600 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <span>Pending</span>
+            <span
+              className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                filterStatus === 'PENDING' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+              }`}
+            >
+              {pendingCount}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setFilterStatus('IN_PROGRESS')}
+            className={`px-3.5 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 ${
+              filterStatus === 'IN_PROGRESS'
+                ? 'bg-indigo-600 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <span>In Progress</span>
+            <span
+              className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                filterStatus === 'IN_PROGRESS' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+              }`}
+            >
+              {inProgressCount}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setFilterStatus('RESOLVED')}
+            className={`px-3.5 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 ${
+              filterStatus === 'RESOLVED'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <span>Resolved</span>
+            <span
+              className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                filterStatus === 'RESOLVED' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+              }`}
+            >
+              {resolvedCount}
+            </span>
+          </button>
         </div>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
-                <th className="px-4 py-2.5">Date (BS)</th>
-                <th className="px-4 py-2.5">Room</th>
-                <th className="px-4 py-2.5">Tenant</th>
-                <th className="px-4 py-2.5">Category</th>
-                <th className="px-4 py-2.5">Issue & Description</th>
-                <th className="px-4 py-2.5">Photo</th>
-                <th className="px-4 py-2.5">Status</th>
-                <th className="px-4 py-2.5">Admin Notes</th>
-                <th className="px-4 py-2.5 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-800">
-              {loading ? (
-                <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-slate-400">
-                    Loading maintenance requests...
-                  </td>
+      {/* Maintenance Tickets Table */}
+      {loading ? (
+        <SkeletonTable rows={5} cols={6} />
+      ) : filteredRequests.length === 0 ? (
+        <EmptyState
+          icon={<Wrench className="w-6 h-6 text-indigo-500" />}
+          title="No maintenance requests"
+          description="Residents have not submitted any repair tickets under this filter."
+        />
+      ) : (
+        <div className="bg-white border border-slate-200/80 rounded-2xl shadow-card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-50/80 border-b border-slate-200/80 text-slate-600 font-bold">
+                  <th className="px-4 py-3">Room & Resident</th>
+                  <th className="px-4 py-3">Issue Title & Description</th>
+                  <th className="px-4 py-3">Reported Date</th>
+                  <th className="px-4 py-3">Photo Proof</th>
+                  <th className="px-4 py-3">Status Pipeline</th>
+                  <th className="px-4 py-3">Admin Notes</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
-              ) : requests.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-slate-400">
-                    No maintenance requests
-                  </td>
-                </tr>
-              ) : (
-                requests.map((r) => {
-                  const isOpen = r.status === 'NEW';
-                  const isInProgress = r.status === 'IN_PROGRESS';
-                  const isCompleted = r.status === 'COMPLETED';
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-800 font-medium">
+                {filteredRequests.map((r) => {
+                  const roomNum = r.room?.roomNumber || '—';
+                  const tenantName = r.tenant?.fullName || 'Tenant';
 
                   return (
-                    <tr key={r.id} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="px-4 py-3 font-mono">{r.createdDateBS}</td>
-                      <td className="px-4 py-3 font-medium">Room {r.room?.roomNumber}</td>
-                      <td className="px-4 py-3">
-                        <div className="font-medium text-slate-900">{r.tenant?.fullName}</div>
-                        <div className="text-[11px] text-slate-500">{r.tenant?.phone}</div>
+                    <tr key={r.id} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="px-4 py-3.5">
+                        <div className="font-bold text-slate-900">Room {roomNum}</div>
+                        <div className="text-[11px] text-slate-500">{tenantName}</div>
                       </td>
-                      <td className="px-4 py-3 font-medium text-slate-700">
-                        {r.category || 'General'}
+
+                      <td className="px-4 py-3.5 max-w-xs">
+                        <div className="font-bold text-slate-900">{r.title}</div>
+                        <p className="text-slate-600 text-[11px] mt-0.5 line-clamp-2">
+                          {r.description}
+                        </p>
                       </td>
-                      <td className="px-4 py-3 max-w-xs">
-                        <div className="font-semibold text-slate-900">{r.title || r.description}</div>
-                        {r.title && <div className="text-[11px] text-slate-600 mt-0.5 whitespace-pre-line">{r.description}</div>}
+
+                      <td className="px-4 py-3.5 font-mono text-slate-600">
+                        {r.reportedDateBS || new Date(r.createdAt).toLocaleDateString()}
                       </td>
-                      <td className="px-4 py-3">
+
+                      <td className="px-4 py-3.5">
                         {r.photoPath ? (
                           <button
+                            type="button"
                             onClick={() => setSelectedPhoto(getFileUrl(r.photoPath))}
-                            className="px-2 py-0.5 rounded border border-slate-300 hover:bg-slate-100 text-[11px] text-slate-700 font-medium"
+                            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-indigo-600 font-semibold text-[11px] shadow-xs"
                           >
-                            View Photo
+                            <ImageIcon className="w-3.5 h-3.5" />
+                            <span>View Photo</span>
                           </button>
                         ) : (
-                          <span className="text-slate-400">&mdash;</span>
+                          <span className="text-slate-400 italic">None</span>
                         )}
                       </td>
-                      <td className="px-4 py-3">
-                        {isOpen && (
-                          <span className="inline-flex px-2 py-0.5 rounded text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
-                            Pending
-                          </span>
-                        )}
-                        {isInProgress && (
-                          <span className="inline-flex px-2 py-0.5 rounded text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200">
-                            In Progress
-                          </span>
-                        )}
-                        {isCompleted && (
-                          <span className="inline-flex px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            Completed
-                          </span>
-                        )}
+
+                      <td className="px-4 py-3.5">
+                        <select
+                          value={r.status}
+                          onChange={(e) => handleUpdateStatus(r.id, e.target.value)}
+                          className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-xs font-bold focus:outline-none focus:border-indigo-500"
+                        >
+                          <option value="PENDING">Pending</option>
+                          <option value="IN_PROGRESS">In Progress</option>
+                          <option value="RESOLVED">Resolved</option>
+                        </select>
                       </td>
-                      <td className="px-4 py-3 text-slate-600">
+
+                      <td className="px-4 py-3.5 max-w-[180px]">
                         {r.adminNotes ? (
-                          <span className="italic">{r.adminNotes}</span>
+                          <span className="text-[11px] text-slate-600 truncate block">
+                            {r.adminNotes}
+                          </span>
                         ) : (
-                          <span className="text-slate-400">&mdash;</span>
+                          <span className="text-slate-400 italic text-[11px]">No notes</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <select
-                            value={r.status}
-                            onChange={(e) => handleUpdateStatus(r.id, e.target.value)}
-                            className="px-1.5 py-1 rounded border border-slate-300 text-[11px] bg-white text-slate-800 focus:outline-none"
-                          >
-                            <option value="NEW">Pending</option>
-                            <option value="IN_PROGRESS">In Progress</option>
-                            <option value="COMPLETED">Completed</option>
-                          </select>
-                          <button
-                            onClick={() => {
-                              setSelectedReq(r);
-                              setAdminNotes(r.adminNotes || '');
-                              setNotesModalOpen(true);
-                            }}
-                            className="px-2 py-1 rounded border border-slate-300 hover:bg-slate-100 text-[11px] text-slate-700"
-                          >
-                            Notes
-                          </button>
-                        </div>
+
+                      <td className="px-4 py-3.5 text-right">
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          onClick={() => {
+                            setSelectedReq(r);
+                            setAdminNotes(r.adminNotes || '');
+                            setNotesModalOpen(true);
+                          }}
+                        >
+                          <MessageSquare className="w-3 h-3" />
+                          <span>Notes</span>
+                        </Button>
                       </td>
                     </tr>
                   );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Photo Modal */}
-      {selectedPhoto && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-white border border-slate-200 rounded-lg p-4 max-w-lg w-full shadow-lg text-xs space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <span className="font-semibold text-slate-900">Maintenance Photo Attachment</span>
-              <button
-                onClick={() => setSelectedPhoto(null)}
-                className="text-slate-400 hover:text-slate-600 font-bold text-sm"
-              >
-                &times;
-              </button>
-            </div>
-            <div className="max-h-[70vh] overflow-auto flex items-center justify-center bg-slate-50 rounded p-2">
-              <img
-                src={selectedPhoto}
-                alt="Issue Attachment"
-                className="max-w-full h-auto object-contain rounded"
-              />
-            </div>
-            <div className="flex justify-end">
-              <button
-                onClick={() => setSelectedPhoto(null)}
-                className="px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium"
-              >
-                Close
-              </button>
-            </div>
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
 
-      {/* Notes Modal */}
-      {notesModalOpen && selectedReq && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-          <div className="bg-white border border-slate-200 rounded-lg p-5 max-w-sm w-full shadow-lg text-xs space-y-3">
-            <h3 className="text-sm font-semibold text-slate-900 pb-2 border-b border-slate-100">
-              Admin Notes &mdash; {selectedReq.title || 'Request'}
-            </h3>
-            <form onSubmit={handleSaveNotes} className="space-y-3">
-              <div>
-                <label className="block text-slate-700 font-medium mb-1">Resolution / Update Notes</label>
-                <textarea
-                  rows={3}
-                  value={adminNotes}
-                  onChange={(e) => setAdminNotes(e.target.value)}
-                  placeholder="e.g. Plumber scheduled for Saturday 10 AM..."
-                  className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-slate-900 focus:outline-none focus:border-slate-900"
-                />
-              </div>
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setNotesModalOpen(false)}
-                  className="px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-3 py-1.5 rounded bg-slate-900 hover:bg-slate-800 text-white font-medium"
-                >
-                  Save Notes
-                </button>
-              </div>
-            </form>
+      {/* Photo Lightbox Modal */}
+      {selectedPhoto && (
+        <Modal
+          isOpen={true}
+          onClose={() => setSelectedPhoto(null)}
+          title="Maintenance Attachment Photo"
+          description="Tenant submitted repair photo"
+          icon={<ImageIcon className="w-5 h-5 text-indigo-600" />}
+          maxWidth="lg"
+        >
+          <div className="space-y-3">
+            <div className="rounded-xl overflow-hidden bg-slate-950 flex items-center justify-center max-h-[65vh]">
+              <img
+                src={selectedPhoto}
+                alt="Maintenance inspection"
+                className="max-w-full max-h-[65vh] object-contain"
+              />
+            </div>
+            <div className="flex justify-between items-center pt-2">
+              <a
+                href={selectedPhoto}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+              >
+                <span>Open Original Image</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+              <Button type="button" variant="outline" size="sm" onClick={() => setSelectedPhoto(null)}>
+                Close
+              </Button>
+            </div>
           </div>
-        </div>
+        </Modal>
+      )}
+
+      {/* Admin Notes Modal */}
+      {notesModalOpen && selectedReq && (
+        <Modal
+          isOpen={true}
+          onClose={() => setNotesModalOpen(false)}
+          title={`Admin Notes — Ticket #${selectedReq.id.slice(-4).toUpperCase()}`}
+          description={`Room ${selectedReq.room?.roomNumber || '—'} • ${selectedReq.title}`}
+          icon={<MessageSquare className="w-5 h-5 text-indigo-600" />}
+          maxWidth="sm"
+        >
+          <form onSubmit={handleSaveNotes} className="space-y-4">
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Resolution & Progress Notes
+              </label>
+              <textarea
+                rows={4}
+                value={adminNotes}
+                onChange={(e) => setAdminNotes(e.target.value)}
+                placeholder="e.g. Electrician scheduled for tomorrow at 2 PM..."
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-slate-900 text-xs focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <Button type="button" variant="outline" onClick={() => setNotesModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" className="font-bold">
+                Save Notes
+              </Button>
+            </div>
+          </form>
+        </Modal>
       )}
     </div>
   );

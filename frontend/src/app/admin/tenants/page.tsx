@@ -6,6 +6,34 @@ import { formatCurrencyNPR, getTodayBS } from '@/lib/nepali-date';
 import { NepaliDatePicker } from '@/components/NepaliDatePicker';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { useToast } from '@/lib/toast-context';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
+import { StatusBadge } from '@/components/StatusBadge';
+import { SkeletonTable } from '@/components/ui/LoadingSkeleton';
+import { EmptyState } from '@/components/ui/EmptyState';
+import {
+  Users,
+  UserPlus,
+  Search,
+  Phone,
+  DoorOpen,
+  Calendar,
+  Banknote,
+  KeyRound,
+  FileText,
+  ArrowRightLeft,
+  LogOut,
+  Trash2,
+  Edit,
+  PiggyBank,
+  CheckCircle2,
+  AlertTriangle,
+  Wifi,
+  WifiOff,
+  UserCheck,
+  UserX,
+} from 'lucide-react';
 
 export default function AdminTenantsPage() {
   const toast = useToast();
@@ -13,6 +41,7 @@ export default function AdminTenantsPage() {
   const [rooms, setRooms] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [statusTab, setStatusTab] = useState<'active' | 'moved_out' | 'archived' | 'all'>('active');
 
   // Modals
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -23,6 +52,27 @@ export default function AdminTenantsPage() {
   const [moveOutModalOpen, setMoveOutModalOpen] = useState(false);
   const [tenantForMoveOut, setTenantForMoveOut] = useState<any>(null);
   const [selectedTenant, setSelectedTenant] = useState<any>(null);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [tenantForDelete, setTenantForDelete] = useState<any>(null);
+
+  // Cash payment modal state
+  const [cashModalOpen, setCashModalOpen] = useState(false);
+  const [cashSubmitting, setCashSubmitting] = useState(false);
+  const [cashForm, setCashForm] = useState({
+    tenantId: '',
+    tenantName: '',
+    roomNumber: '',
+    billId: '',
+    amount: '',
+    maxDue: 0,
+    paymentDateBS: '',
+    notes: '',
+  });
+
+  // Advance summary modal state
+  const [advanceModalOpen, setAdvanceModalOpen] = useState(false);
+  const [advanceTenantSummary, setAdvanceTenantSummary] = useState<any>(null);
+  const [advanceLoading, setAdvanceLoading] = useState(false);
 
   // Form states
   const [createForm, setCreateForm] = useState({
@@ -41,6 +91,7 @@ export default function AdminTenantsPage() {
 
   const [editForm, setEditForm] = useState({
     id: '',
+    username: '',
     fullName: '',
     phone: '',
     monthlyRent: '',
@@ -64,8 +115,8 @@ export default function AdminTenantsPage() {
         api.get('/tenants'),
         api.get('/rooms'),
       ]);
-      setTenants(tData);
-      setRooms(rData);
+      setTenants(Array.isArray(tData) ? tData : []);
+      setRooms(Array.isArray(rData) ? rData : []);
     } catch (err: any) {
       toast.error(err.message || 'Failed to load tenant data');
     } finally {
@@ -78,29 +129,6 @@ export default function AdminTenantsPage() {
     const today = getTodayBS();
     setCreateForm((prev) => ({ ...prev, moveInDateBS: today.nepaliFormatted }));
   }, []);
-
-  const [statusTab, setStatusTab] = useState<'active' | 'moved_out' | 'archived' | 'all'>('active');
-  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
-  const [tenantForDelete, setTenantForDelete] = useState<any>(null);
-
-  // Cash payment modal state
-  const [cashModalOpen, setCashModalOpen] = useState(false);
-  const [cashSubmitting, setCashSubmitting] = useState(false);
-  const [cashForm, setCashForm] = useState({
-    tenantId: '',
-    tenantName: '',
-    roomNumber: '',
-    billId: '',
-    amount: '',
-    maxDue: 0,
-    paymentDateBS: '',
-    notes: '',
-  });
-
-  // Advance summary modal state
-  const [advanceModalOpen, setAdvanceModalOpen] = useState(false);
-  const [advanceTenantSummary, setAdvanceTenantSummary] = useState<any>(null);
-  const [advanceLoading, setAdvanceLoading] = useState(false);
 
   const handleOpenAdvance = async (t: any) => {
     setSelectedTenant(t);
@@ -135,9 +163,15 @@ export default function AdminTenantsPage() {
     );
   });
 
-  const activeCount = tenants.filter((t) => (t.profile?.status || t.tenantProfile?.status) === 'ACTIVE').length;
-  const movedOutCount = tenants.filter((t) => (t.profile?.status || t.tenantProfile?.status) === 'MOVED_OUT').length;
-  const archivedCount = tenants.filter((t) => (t.profile?.status || t.tenantProfile?.status) === 'ARCHIVED').length;
+  const activeCount = tenants.filter(
+    (t) => (t.profile?.status || t.tenantProfile?.status) === 'ACTIVE'
+  ).length;
+  const movedOutCount = tenants.filter(
+    (t) => (t.profile?.status || t.tenantProfile?.status) === 'MOVED_OUT'
+  ).length;
+  const archivedCount = tenants.filter(
+    (t) => (t.profile?.status || t.tenantProfile?.status) === 'ARCHIVED'
+  ).length;
 
   const handleOpenDelete = (tenant: any) => {
     setTenantForDelete(tenant);
@@ -253,6 +287,7 @@ export default function AdminTenantsPage() {
     const profile = t.profile || t.tenantProfile;
     setEditForm({
       id: t.id,
+      username: t.username || '',
       fullName: t.fullName || '',
       phone: t.phone || '',
       monthlyRent: String(profile?.monthlyRent ?? ''),
@@ -272,6 +307,7 @@ export default function AdminTenantsPage() {
     try {
       setActionLoading(true);
       await api.put(`/tenants/${editForm.id}`, {
+        username: editForm.username.trim() || undefined,
         fullName: editForm.fullName,
         phone: editForm.phone || undefined,
         monthlyRent: Number(editForm.monthlyRent) || undefined,
@@ -382,1068 +418,1083 @@ export default function AdminTenantsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
-        <div>
-          <h2 className="text-base font-bold text-slate-900">Tenants</h2>
-          <p className="text-xs text-slate-500">Tenant directory and room assignments</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            placeholder="Search tenants..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="px-3 py-1.5 rounded-md border border-slate-300 bg-white text-slate-900 text-xs focus:outline-none focus:border-slate-900"
-          />
-          <button
+      {/* Page Header */}
+      <PageHeader
+        category="Directory"
+        title="Tenant Management"
+        subtitle="Manage active residents, room assignments, login credentials, and records"
+        actions={
+          <Button
             onClick={() => setCreateModalOpen(true)}
-            className="px-3 py-1.5 rounded-md bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium transition"
+            variant="primary"
+            size="sm"
+            className="font-bold"
           >
-            Add Tenant
+            <UserPlus className="w-4 h-4" />
+            <span>Add New Tenant</span>
+          </Button>
+        }
+      />
+
+      {/* Filter Tabs & Search Controls */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200/80 shadow-xs">
+        {/* Status Tab Pills */}
+        <div className="flex items-center gap-1.5 overflow-x-auto text-xs pb-1 md:pb-0">
+          <button
+            type="button"
+            onClick={() => setStatusTab('active')}
+            className={`px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 shrink-0 ${
+              statusTab === 'active'
+                ? 'bg-indigo-600 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <UserCheck className="w-3.5 h-3.5" />
+            <span>Active</span>
+            <span
+              className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                statusTab === 'active'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-slate-100 text-slate-700'
+              }`}
+            >
+              {activeCount}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setStatusTab('moved_out')}
+            className={`px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 shrink-0 ${
+              statusTab === 'moved_out'
+                ? 'bg-amber-600 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <UserX className="w-3.5 h-3.5" />
+            <span>Moved Out</span>
+            <span
+              className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                statusTab === 'moved_out'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-slate-100 text-slate-700'
+              }`}
+            >
+              {movedOutCount}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setStatusTab('archived')}
+            className={`px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 shrink-0 ${
+              statusTab === 'archived'
+                ? 'bg-slate-800 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <span>Archived</span>
+            <span
+              className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                statusTab === 'archived'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-slate-100 text-slate-700'
+              }`}
+            >
+              {archivedCount}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setStatusTab('all')}
+            className={`px-3 py-1.5 rounded-xl font-bold transition-all shrink-0 ${
+              statusTab === 'all'
+                ? 'bg-slate-900 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <span>All ({tenants.length})</span>
           </button>
         </div>
-      </div>
 
-      {/* Status Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-200 text-xs">
-        <button
-          type="button"
-          onClick={() => setStatusTab('active')}
-          className={`pb-2 px-3 font-semibold transition border-b-2 flex items-center gap-1.5 ${
-            statusTab === 'active'
-              ? 'border-slate-900 text-slate-900'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          <span>Active Tenants</span>
-          <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-100 text-emerald-900 font-mono">
-            {activeCount}
-          </span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setStatusTab('moved_out')}
-          className={`pb-2 px-3 font-semibold transition border-b-2 flex items-center gap-1.5 ${
-            statusTab === 'moved_out'
-              ? 'border-slate-900 text-slate-900'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          <span>Moved Out</span>
-          <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-100 text-amber-900 font-mono">
-            {movedOutCount}
-          </span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setStatusTab('archived')}
-          className={`pb-2 px-3 font-semibold transition border-b-2 flex items-center gap-1.5 ${
-            statusTab === 'archived'
-              ? 'border-slate-900 text-slate-900'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          <span>Archived Records</span>
-          <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-100 text-slate-700 font-mono">
-            {archivedCount}
-          </span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setStatusTab('all')}
-          className={`pb-2 px-3 font-semibold transition border-b-2 flex items-center gap-1.5 ${
-            statusTab === 'all'
-              ? 'border-slate-900 text-slate-900'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          <span>All ({tenants.length})</span>
-        </button>
+        {/* Search input */}
+        <div className="relative w-full md:w-64 shrink-0">
+          <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400 pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Search by name, room, phone..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-300 text-slate-900 text-xs placeholder:text-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white"
+          />
+        </div>
       </div>
 
       {/* Tenants Table */}
-      <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
-                <th className="px-4 py-2.5">Name / Username</th>
-                <th className="px-4 py-2.5">Room</th>
-                <th className="px-4 py-2.5">Phone</th>
-                <th className="px-4 py-2.5">Monthly Rent</th>
-                <th className="px-4 py-2.5">Occupants</th>
-                <th className="px-4 py-2.5">Move-In / Out Date</th>
-                <th className="px-4 py-2.5">Status & Dues</th>
-                <th className="px-4 py-2.5 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-800">
-              {loading ? (
-                <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
-                    Loading tenants...
-                  </td>
+      {loading ? (
+        <SkeletonTable rows={5} cols={6} />
+      ) : filteredTenants.length === 0 ? (
+        <EmptyState
+          icon={<Users className="w-6 h-6 text-indigo-500" />}
+          title={
+            statusTab === 'active'
+              ? 'No active tenants'
+              : statusTab === 'moved_out'
+              ? 'No moved-out tenants'
+              : statusTab === 'archived'
+              ? 'No archived records'
+              : 'No tenants match your search'
+          }
+          description="Add a new tenant or change your search filter."
+          action={
+            statusTab === 'active' ? (
+              <Button onClick={() => setCreateModalOpen(true)} variant="primary" size="sm">
+                <UserPlus className="w-4 h-4" />
+                <span>Add Tenant</span>
+              </Button>
+            ) : undefined
+          }
+        />
+      ) : (
+        <div className="bg-white border border-slate-200/80 rounded-2xl shadow-card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-50/80 border-b border-slate-200/80 text-slate-600 font-bold">
+                  <th className="px-4 py-3">Tenant / Username</th>
+                  <th className="px-4 py-3">Room</th>
+                  <th className="px-4 py-3">Contact</th>
+                  <th className="px-4 py-3">Rent</th>
+                  <th className="px-4 py-3">Occupancy</th>
+                  <th className="px-4 py-3">Move Date</th>
+                  <th className="px-4 py-3">Dues & Status</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
-              ) : filteredTenants.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
-                    {statusTab === 'active'
-                      ? 'No active tenants'
-                      : statusTab === 'moved_out'
-                      ? 'No moved-out tenants'
-                      : statusTab === 'archived'
-                      ? 'No archived tenants'
-                      : 'No tenants found'}
-                  </td>
-                </tr>
-              ) : (
-                filteredTenants.map((t) => {
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-800 font-medium">
+                {filteredTenants.map((t) => {
                   const profile = t.profile || t.tenantProfile;
                   const roomNumber = profile?.roomNumber ?? profile?.room?.roomNumber;
-                  const status = profile?.status || (t.status === 'ACTIVE' ? 'ACTIVE' : 'MOVED_OUT');
+                  const status =
+                    profile?.status || (t.status === 'ACTIVE' ? 'ACTIVE' : 'MOVED_OUT');
                   const isActive = status === 'ACTIVE';
                   const isArchived = status === 'ARCHIVED';
                   const balanceDue = Number(t.latestBill?.balanceDue ?? 0);
 
                   return (
-                    <tr key={t.id} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="px-4 py-3">
-                        <div className="font-semibold text-slate-900">{t.fullName}</div>
-                        <div className="text-[11px] text-slate-500 font-mono">@{t.username}</div>
-                        {profile?.citizenshipNumber && (
-                          <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-                            ID: {profile.citizenshipNumber}
+                    <tr key={t.id} className="hover:bg-slate-50/80 transition-colors">
+                      {/* Tenant Name / Username & ID */}
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 font-bold text-xs flex items-center justify-center shrink-0 border border-indigo-200">
+                            {t.fullName ? t.fullName.slice(0, 2).toUpperCase() : 'TN'}
+                          </div>
+                          <div>
+                            <div className="font-bold text-slate-900 leading-tight">
+                              {t.fullName}
+                            </div>
+                            <div className="text-[11px] text-slate-500 font-mono">
+                              @{t.username}
+                            </div>
+                            {profile?.citizenshipNumber && (
+                              <div className="text-[10px] text-slate-400 font-mono">
+                                ID: {profile.citizenshipNumber}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Room tag */}
+                      <td className="px-4 py-3.5">
+                        {roomNumber !== undefined && roomNumber !== null && roomNumber !== '' ? (
+                          <span className="inline-flex px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                            Room {roomNumber}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 italic">Unassigned</span>
+                        )}
+                      </td>
+
+                      {/* Contact phone */}
+                      <td className="px-4 py-3.5 font-mono text-slate-600">
+                        {t.phone ? (
+                          <a
+                            href={`tel:${t.phone}`}
+                            className="hover:text-indigo-600 hover:underline flex items-center gap-1"
+                          >
+                            <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span>{t.phone}</span>
+                          </a>
+                        ) : (
+                          <span className="text-slate-400">&mdash;</span>
+                        )}
+                      </td>
+
+                      {/* Rent */}
+                      <td className="px-4 py-3.5 font-mono font-bold text-slate-900">
+                        {profile ? (
+                          formatCurrencyNPR(profile.monthlyRent)
+                        ) : (
+                          <span className="text-slate-400">&mdash;</span>
+                        )}
+                      </td>
+
+                      {/* Occupancy & Internet */}
+                      <td className="px-4 py-3.5 text-slate-600">
+                        <div>
+                          {profile?.numberOfPeople || 1}{' '}
+                          {profile?.numberOfPeople > 1 ? 'people' : 'person'}
+                        </div>
+                        {profile?.internetEnabled === false ? (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-500 border border-slate-200 mt-1">
+                            <WifiOff className="w-3 h-3" />
+                            <span>No Net</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 mt-1">
+                            <Wifi className="w-3 h-3 text-emerald-600" />
+                            <span>Internet</span>
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Move Dates */}
+                      <td className="px-4 py-3.5 text-slate-600 font-mono text-[11px]">
+                        <div>In: {profile?.moveInDateBS || '&mdash;'}</div>
+                        {profile?.moveOutDateBS && (
+                          <div className="text-amber-700 font-medium">
+                            Out: {profile.moveOutDateBS}
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-3 font-medium text-slate-900">
-                        {roomNumber !== undefined && roomNumber !== null && roomNumber !== '' ? (
-                          `Room ${roomNumber}`
-                        ) : (
-                          <span className="text-slate-400">-</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600 font-mono">
-                        {t.phone || <span className="text-slate-400">-</span>}
-                      </td>
-                      <td className="px-4 py-3 font-mono font-medium text-slate-900">
-                        {profile ? formatCurrencyNPR(profile.monthlyRent) : <span className="text-slate-400">-</span>}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">
-                        <div>{profile?.numberOfPeople || 1} {profile?.numberOfPeople > 1 ? 'people' : 'person'}</div>
-                        {profile?.internetEnabled === false ? (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-500 border border-slate-200 mt-1">
-                            No Internet
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 mt-1">
-                            Internet
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">
-                        <div>In: {profile?.moveInDateBS || '-'}</div>
-                        {profile?.moveOutDateBS && (
-                          <div className="text-[11px] text-rose-600 font-mono">Out: {profile.moveOutDateBS}</div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-col gap-1">
-                          {isActive ? (
-                            <span className="inline-flex px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 self-start">
-                              Active
-                            </span>
-                          ) : isArchived ? (
-                            <span className="inline-flex px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200 self-start">
-                              Archived Record
-                            </span>
-                          ) : (
-                            <span className="inline-flex px-2 py-0.5 rounded text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200 self-start">
-                              Moved Out
-                            </span>
-                          )}
 
-                          {balanceDue > 0 && (
-                            <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-50 text-rose-700 border border-rose-200 self-start">
+                      {/* Status & Dues */}
+                      <td className="px-4 py-3.5">
+                        <div className="space-y-1">
+                          <StatusBadge status={status} />
+                          {balanceDue > 0 ? (
+                            <div className="text-rose-700 font-mono font-bold text-[11px]">
                               Due: {formatCurrencyNPR(balanceDue)}
-                            </span>
-                          )}
-
-                          {Number(profile?.advanceBalance) > 0 && (
-                            <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 self-start">
-                              Adv: {formatCurrencyNPR(profile.advanceBalance)}
-                            </span>
+                            </div>
+                          ) : (
+                            <div className="text-emerald-700 font-medium text-[10px] flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                              <span>Zero Dues</span>
+                            </div>
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-1.5 flex-wrap">
+
+                      {/* Actions */}
+                      <td className="px-4 py-3.5 text-right">
+                        <div className="inline-flex items-center gap-1.5 flex-wrap justify-end">
+                          {/* Pay Cash button */}
+                          <Button
+                            variant="success"
+                            size="xs"
+                            onClick={() => handleOpenCashPayment(t)}
+                            title="Record Cash Payment"
+                          >
+                            Pay Cash
+                          </Button>
+
+                          {/* Advance Summary */}
                           <button
+                            type="button"
                             onClick={() => handleOpenAdvance(t)}
-                            title="View Advance Balance & History"
-                            className="px-2 py-1 text-[11px] rounded border border-emerald-300 hover:bg-emerald-50 text-emerald-800 font-medium"
+                            className="px-2 py-1 text-[11px] font-semibold rounded-lg border border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100 transition"
+                            title="View Advance Summary"
                           >
                             Advance
                           </button>
-                          {isActive ? (
-                            <>
-                              <button
-                                onClick={() => handleOpenEdit(t)}
-                                title="Edit Tenant Details"
-                                className="px-2 py-1 text-[11px] rounded border border-slate-300 hover:bg-slate-100 text-slate-700 font-medium"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setSelectedTenant(t);
-                                  setMoveRoomModalOpen(true);
-                                }}
-                                title="Move Room"
-                                className="px-2 py-1 text-[11px] rounded border border-slate-300 hover:bg-slate-100 text-slate-700 font-medium"
-                              >
-                                Move Room
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setSelectedTenant(t);
-                                  setDocCitizenshipNo(profile?.citizenshipNumber || '');
-                                  setDocModalOpen(true);
-                                }}
-                                title="Citizenship Details & Document"
-                                className="px-2 py-1 text-[11px] rounded border border-slate-300 hover:bg-slate-100 text-slate-700 font-medium"
-                              >
-                                Citizenship
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setSelectedTenant(t);
-                                  setResetPassModalOpen(true);
-                                }}
-                                title="Reset Password"
-                                className="px-2 py-1 text-[11px] rounded border border-slate-300 hover:bg-slate-100 text-slate-700 font-medium"
-                              >
-                                Reset Pass
-                              </button>
-                              <button
-                                onClick={() => handleOpenMoveOut(t)}
-                                title="Move Out"
-                                className="px-2 py-1 text-[11px] rounded border border-rose-200 hover:bg-rose-50 text-rose-700 font-medium"
-                              >
-                                Move Out
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              {balanceDue > 0 && (
-                                <button
-                                  onClick={() => handleOpenCashPayment(t)}
-                                  title="Record Cash Payment"
-                                  className="px-2 py-1 text-[11px] rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-xs"
-                                >
-                                  Pay Cash
-                                </button>
-                              )}
-                              <button
-                                onClick={() => handleOpenDelete(t)}
-                                title="Safe Archive or Delete Tenant"
-                                className="px-2 py-1 text-[11px] rounded border border-rose-200 text-rose-700 hover:bg-rose-50 font-medium"
-                              >
-                                {isArchived ? 'Delete / Purge' : 'Archive / Delete'}
-                              </button>
-                            </>
+
+                          {/* Move Room (Active only) */}
+                          {isActive && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedTenant(t);
+                                setTargetRoomId('');
+                                setMoveRoomModalOpen(true);
+                              }}
+                              className="px-2 py-1 text-[11px] font-semibold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition"
+                              title="Move to another room"
+                            >
+                              Move
+                            </button>
                           )}
+
+                          {/* Upload Docs */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedTenant(t);
+                              setDocFile(null);
+                              setDocCitizenshipNo(profile?.citizenshipNumber || '');
+                              setDocModalOpen(true);
+                            }}
+                            className="p-1 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition"
+                            title="Upload Citizenship Document"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Edit Details */}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEdit(t)}
+                            className="p-1 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition"
+                            title="Edit Tenant Profile & Username"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Move Out (Active only) */}
+                          {isActive && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenMoveOut(t)}
+                              className="p-1 rounded-lg text-amber-600 hover:text-amber-800 hover:bg-amber-50 transition"
+                              title="Process Move Out"
+                            >
+                              <LogOut className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
+                          {/* Reset Password */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedTenant(t);
+                              setNewPassword('');
+                              setResetPassModalOpen(true);
+                            }}
+                            className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
+                            title="Reset Password"
+                          >
+                            <KeyRound className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Delete or Archive */}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenDelete(t)}
+                            className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
+                            title="Delete or Archive Tenant"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </td>
                     </tr>
                   );
-                })
-              )}
-            </tbody>
-          </table>
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Add Tenant Modal */}
+      {/* 1. Add New Tenant Modal */}
       {createModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-          <div className="bg-white border border-slate-200 rounded-lg p-5 max-w-md w-full shadow-lg text-xs space-y-4 max-h-[90vh] overflow-y-auto">
-            <h3 className="text-sm font-semibold text-slate-900 pb-2 border-b border-slate-100">
-              Add New Tenant
-            </h3>
-
-            <form onSubmit={handleCreateTenant} className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-700 font-medium mb-1">Full Name *</label>
-                  <input
-                    type="text"
-                    required
-                    value={createForm.fullName}
-                    onChange={(e) => setCreateForm({ ...createForm, fullName: e.target.value })}
-                    placeholder="e.g. Ramesh KC"
-                    className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-slate-900 focus:outline-none focus:border-slate-900"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-700 font-medium mb-1">Phone *</label>
-                  <input
-                    type="text"
-                    required
-                    value={createForm.phone}
-                    onChange={(e) => setCreateForm({ ...createForm, phone: e.target.value })}
-                    placeholder="98XXXXXXXX"
-                    className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-slate-900 focus:outline-none focus:border-slate-900"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-700 font-medium mb-1">Username *</label>
-                  <input
-                    type="text"
-                    required
-                    value={createForm.username}
-                    onChange={(e) => setCreateForm({ ...createForm, username: e.target.value.toLowerCase() })}
-                    placeholder="e.g. ramesh_kc"
-                    className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-slate-900 focus:outline-none focus:border-slate-900"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-700 font-medium mb-1">Password *</label>
-                  <input
-                    type="password"
-                    required
-                    value={createForm.password}
-                    onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
-                    placeholder="Initial password"
-                    className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-slate-900 focus:outline-none focus:border-slate-900"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-700 font-medium mb-1">Assign Room *</label>
-                  <select
-                    required
-                    value={createForm.roomId}
-                    onChange={(e) => {
-                      const sel = vacantRooms.find((r) => r.id === e.target.value);
-                      setCreateForm({
-                        ...createForm,
-                        roomId: e.target.value,
-                        monthlyRent: sel ? String(sel.defaultRent) : createForm.monthlyRent,
-                      });
-                    }}
-                    className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-slate-900 bg-white focus:outline-none focus:border-slate-900"
-                  >
-                    <option value="">
-                      {vacantRooms.length === 0 ? 'No vacant rooms available' : 'Select vacant room'}
-                    </option>
-                    {vacantRooms.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        Room {r.roomNumber} ({formatCurrencyNPR(r.defaultRent)})
-                      </option>
-                    ))}
-                  </select>
-                  {vacantRooms.length === 0 && (
-                    <p className="text-[10px] text-rose-500 mt-1">
-                      All rooms are currently occupied. Move out an existing tenant first to free up a room.
-                    </p>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-slate-700 font-medium mb-1">Monthly Rent (NPR) *</label>
-                  <input
-                    type="number"
-                    required
-                    min={1000}
-                    value={createForm.monthlyRent}
-                    onChange={(e) => setCreateForm({ ...createForm, monthlyRent: e.target.value })}
-                    className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-slate-900 focus:outline-none focus:border-slate-900"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-700 font-medium mb-1">Number of People</label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={createForm.numberOfPeople}
-                    onChange={(e) => setCreateForm({ ...createForm, numberOfPeople: Number(e.target.value) })}
-                    className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-slate-900 focus:outline-none focus:border-slate-900"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-700 font-medium mb-1">Move-In Date (BS) *</label>
-                  <NepaliDatePicker
-                    value={createForm.moveInDateBS}
-                    onChange={(formattedBS) => setCreateForm({ ...createForm, moveInDateBS: formattedBS })}
-                    placeholder="Select move-in date"
-                  />
-                </div>
-              </div>
-
-              <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between">
-                <div>
-                  <label htmlFor="create-internet-toggle" className="text-slate-800 font-medium block cursor-pointer">Internet Charge</label>
-                  <span className="text-[10px] text-slate-500">Monthly internet fee (Rs. 250/person)</span>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    id="create-internet-toggle"
-                    type="checkbox"
-                    checked={createForm.internetEnabled}
-                    onChange={(e) => setCreateForm({ ...createForm, internetEnabled: e.target.checked })}
-                    className="sr-only peer"
-                  />
-                  <div className="w-8 h-4 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3.5 after:transition-all peer-checked:bg-slate-900"></div>
-                  <span className="ml-2 text-[11px] font-medium text-slate-700">
-                    {createForm.internetEnabled ? 'Enabled' : 'No Internet'}
-                  </span>
-                </label>
-              </div>
-
+        <Modal
+          isOpen={true}
+          onClose={() => setCreateModalOpen(false)}
+          title="Add New Tenant Agreement"
+          description="Register a new resident, assign a room, and configure monthly billing terms"
+          icon={<UserPlus className="w-5 h-5 text-indigo-600" />}
+          maxWidth="lg"
+        >
+          <form onSubmit={handleCreateTenant} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               <div>
-                <label className="block text-slate-700 font-medium mb-1">Citizenship Number</label>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Full Name <span className="text-rose-500">*</span>
+                </label>
                 <input
                   type="text"
-                  value={createForm.citizenshipNumber}
-                  onChange={(e) => setCreateForm({ ...createForm, citizenshipNumber: e.target.value })}
-                  placeholder="e.g. 27-01-75-XXXXX"
-                  className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-slate-900 focus:outline-none focus:border-slate-900"
+                  required
+                  placeholder="e.g. Ramesh Thapa"
+                  value={createForm.fullName}
+                  onChange={(e) =>
+                    setCreateForm({ ...createForm, fullName: e.target.value })
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-slate-900 text-xs focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-700 font-medium mb-1">Notes</label>
-                <textarea
-                  rows={2}
-                  value={createForm.notes}
-                  onChange={(e) => setCreateForm({ ...createForm, notes: e.target.value })}
-                  placeholder="Optional notes..."
-                  className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-slate-900 focus:outline-none focus:border-slate-900"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setCreateModalOpen(false)}
-                  className="px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={actionLoading}
-                  className="px-3 py-1.5 rounded bg-slate-900 hover:bg-slate-800 text-white font-medium disabled:opacity-50"
-                >
-                  {actionLoading ? 'Creating...' : 'Save Tenant'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Tenant Modal */}
-      {editModalOpen && selectedTenant && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-          <div className="bg-white border border-slate-200 rounded-lg p-5 max-w-md w-full shadow-lg text-xs space-y-4 max-h-[90vh] overflow-y-auto">
-            <h3 className="text-sm font-semibold text-slate-900 pb-2 border-b border-slate-100">
-              Edit Tenant &mdash; {selectedTenant.fullName}
-            </h3>
-
-            <form onSubmit={handleUpdateTenant} className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-700 font-medium mb-1">Full Name *</label>
-                  <input
-                    type="text"
-                    required
-                    value={editForm.fullName}
-                    onChange={(e) => setEditForm({ ...editForm, fullName: e.target.value })}
-                    className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-slate-900 focus:outline-none focus:border-slate-900"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-700 font-medium mb-1">Phone</label>
-                  <input
-                    type="text"
-                    value={editForm.phone}
-                    onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
-                    placeholder="98XXXXXXXX"
-                    className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-slate-900 focus:outline-none focus:border-slate-900"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-700 font-medium mb-1">Monthly Rent (NPR)</label>
-                  <input
-                    type="number"
-                    min={1000}
-                    value={editForm.monthlyRent}
-                    onChange={(e) => setEditForm({ ...editForm, monthlyRent: e.target.value })}
-                    className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-slate-900 focus:outline-none focus:border-slate-900"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-700 font-medium mb-1">Number of People</label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={editForm.numberOfPeople}
-                    onChange={(e) => setEditForm({ ...editForm, numberOfPeople: Number(e.target.value) })}
-                    className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-slate-900 focus:outline-none focus:border-slate-900"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-700 font-medium mb-1">Move-In Date (BS)</label>
-                  <NepaliDatePicker
-                    value={editForm.moveInDateBS}
-                    onChange={(formattedBS) => setEditForm({ ...editForm, moveInDateBS: formattedBS })}
-                    placeholder="Select move-in date"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-700 font-medium mb-1">Citizenship Number</label>
-                  <input
-                    type="text"
-                    value={editForm.citizenshipNumber}
-                    onChange={(e) => setEditForm({ ...editForm, citizenshipNumber: e.target.value })}
-                    placeholder="e.g. 27-01-75-XXXXX"
-                    className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-slate-900 focus:outline-none focus:border-slate-900"
-                  />
-                </div>
-              </div>
-
-              <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between">
-                <div>
-                  <label htmlFor="edit-internet-toggle" className="text-slate-800 font-medium block cursor-pointer">Internet Charge</label>
-                  <span className="text-[10px] text-slate-500">Apply to future monthly bills</span>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    id="edit-internet-toggle"
-                    type="checkbox"
-                    checked={editForm.internetEnabled}
-                    onChange={(e) => setEditForm({ ...editForm, internetEnabled: e.target.checked })}
-                    className="sr-only peer"
-                  />
-                  <div className="w-8 h-4 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3.5 after:transition-all peer-checked:bg-slate-900"></div>
-                  <span className="ml-2 text-[11px] font-medium text-slate-700">
-                    {editForm.internetEnabled ? 'Enabled' : 'No Internet'}
-                  </span>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Username <span className="text-rose-500">*</span>
                 </label>
-              </div>
-
-              <div>
-                <label className="block text-slate-700 font-medium mb-1">Notes</label>
-                <textarea
-                  rows={2}
-                  value={editForm.notes}
-                  onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
-                  placeholder="Optional notes..."
-                  className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-slate-900 focus:outline-none focus:border-slate-900"
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. ramesh"
+                  value={createForm.username}
+                  onChange={(e) =>
+                    setCreateForm({
+                      ...createForm,
+                      username: e.target.value.toLowerCase().replace(/\s+/g, ''),
+                    })
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-slate-900 font-mono text-xs focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setEditModalOpen(false)}
-                  className="px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={actionLoading}
-                  className="px-3 py-1.5 rounded bg-slate-900 hover:bg-slate-800 text-white font-medium disabled:opacity-50"
-                >
-                  {actionLoading ? 'Saving...' : 'Save Changes'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Reset Password Modal */}
-      {resetPassModalOpen && selectedTenant && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-          <div className="bg-white border border-slate-200 rounded-lg p-5 max-w-xs w-full shadow-lg text-xs space-y-3">
-            <h3 className="text-sm font-semibold text-slate-900 pb-2 border-b border-slate-100">
-              Reset Password &mdash; {selectedTenant.fullName}
-            </h3>
-            <form onSubmit={handleResetPassword} className="space-y-3">
               <div>
-                <label className="block text-slate-700 font-medium mb-1">New Password</label>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Initial Password <span className="text-rose-500">*</span>
+                </label>
                 <input
                   type="password"
                   required
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="Enter new password"
-                  className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-slate-900 focus:outline-none focus:border-slate-900"
+                  placeholder="Secure password"
+                  value={createForm.password}
+                  onChange={(e) =>
+                    setCreateForm({ ...createForm, password: e.target.value })
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-slate-900 text-xs focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
                 />
               </div>
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setResetPassModalOpen(false)}
-                  className="px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-100"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={actionLoading}
-                  className="px-3 py-1.5 rounded bg-slate-900 hover:bg-slate-800 text-white font-medium disabled:opacity-50"
-                >
-                  Update
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
-      {/* Move Room Modal */}
-      {moveRoomModalOpen && selectedTenant && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-          <div className="bg-white border border-slate-200 rounded-lg p-5 max-w-xs w-full shadow-lg text-xs space-y-3">
-            <h3 className="text-sm font-semibold text-slate-900 pb-2 border-b border-slate-100">
-              Move Room &mdash; {selectedTenant.fullName}
-            </h3>
-            <form onSubmit={handleMoveRoom} className="space-y-3">
               <div>
-                <label className="block text-slate-700 font-medium mb-1">Select New Room</label>
+                <label className="block font-semibold text-slate-700 mb-1">Phone Number</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 9841234567"
+                  value={createForm.phone}
+                  onChange={(e) =>
+                    setCreateForm({ ...createForm, phone: e.target.value })
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-slate-900 font-mono text-xs focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Assign Room <span className="text-rose-500">*</span>
+                </label>
                 <select
                   required
-                  value={targetRoomId}
-                  onChange={(e) => setTargetRoomId(e.target.value)}
-                  className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-slate-900 bg-white focus:outline-none focus:border-slate-900"
+                  value={createForm.roomId}
+                  onChange={(e) => {
+                    const rId = e.target.value;
+                    const r = rooms.find((rm) => rm.id === rId);
+                    setCreateForm({
+                      ...createForm,
+                      roomId: rId,
+                      monthlyRent: r ? String(r.defaultRent) : createForm.monthlyRent,
+                    });
+                  }}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-slate-900 text-xs focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white"
                 >
-                  <option value="">
-                    {vacantRooms.length === 0 ? 'No vacant rooms available' : 'Select vacant room'}
-                  </option>
+                  <option value="">-- Select Vacant Room --</option>
                   {vacantRooms.map((r) => (
                     <option key={r.id} value={r.id}>
-                      Room {r.roomNumber} ({formatCurrencyNPR(r.defaultRent)})
+                      Room {r.roomNumber} ({r.name}) &mdash; Default: Rs. {r.defaultRent}
                     </option>
                   ))}
                 </select>
               </div>
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setMoveRoomModalOpen(false)}
-                  className="px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-100"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={actionLoading || !targetRoomId}
-                  className="px-3 py-1.5 rounded bg-slate-900 hover:bg-slate-800 text-white font-medium disabled:opacity-50"
-                >
-                  Move
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Citizenship Document Modal */}
-      {docModalOpen && selectedTenant && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-          <div className="bg-white border border-slate-200 rounded-lg p-5 max-w-sm w-full shadow-lg text-xs space-y-3">
-            <h3 className="text-sm font-semibold text-slate-900 pb-2 border-b border-slate-100">
-              Citizenship &mdash; {selectedTenant.fullName}
-            </h3>
-
-            {(selectedTenant.tenantProfile?.citizenshipDocPath || selectedTenant.profile?.citizenshipDocPath) && (
-              <div className="p-2 bg-emerald-50 border border-emerald-200 rounded text-emerald-800 flex items-center justify-between text-xs">
-                <span>Document Uploaded</span>
-                <a
-                  href={`/api/documents/citizenship/${selectedTenant.id}/view`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-emerald-700 underline font-semibold hover:text-emerald-900"
-                >
-                  View Document ↗
-                </a>
-              </div>
-            )}
-
-            <form onSubmit={handleUploadDoc} className="space-y-3">
-              <div>
-                <label className="block text-slate-700 font-medium mb-1">Citizenship Number</label>
-                <input
-                  type="text"
-                  value={docCitizenshipNo}
-                  onChange={(e) => setDocCitizenshipNo(e.target.value)}
-                  placeholder="27-01-75-XXXXX"
-                  className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-slate-900 focus:outline-none focus:border-slate-900"
-                />
-              </div>
-              <div>
-                <label className="block text-slate-700 font-medium mb-1">Upload Document (Image / PDF)</label>
-                <input
-                  type="file"
-                  accept="image/*,.pdf"
-                  onChange={(e) => setDocFile(e.target.files?.[0] || null)}
-                  className="w-full text-xs text-slate-600 file:mr-2 file:py-1 file:px-2.5 file:rounded file:border-0 file:text-xs file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200"
-                />
-              </div>
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setDocModalOpen(false)}
-                  className="px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-100"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={actionLoading}
-                  className="px-3 py-1.5 rounded bg-slate-900 hover:bg-slate-800 text-white font-medium disabled:opacity-50"
-                >
-                  Save
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Move Out Confirmation Modal */}
-      <ConfirmModal
-        isOpen={moveOutModalOpen}
-        title="Confirm Tenant Move-Out"
-        message={
-          tenantForMoveOut
-            ? `Are you sure you want to mark ${tenantForMoveOut.fullName} as moved out? Their assigned room will become vacant immediately.`
-            : 'Are you sure you want to mark this tenant as moved out?'
-        }
-        confirmText="Confirm Move-Out"
-        cancelText="Cancel"
-        isDanger={true}
-        loading={actionLoading}
-        onConfirm={handleConfirmMoveOut}
-        onCancel={() => {
-          setMoveOutModalOpen(false);
-          setTenantForMoveOut(null);
-        }}
-      />
-
-      {/* Delete / Safe Archive Confirmation Modal */}
-      <ConfirmModal
-        isOpen={deleteModalOpen}
-        title={
-          tenantForDelete && (tenantForDelete.profile?.status === 'ARCHIVED' || tenantForDelete.tenantProfile?.status === 'ARCHIVED')
-            ? 'Permanently Delete Tenant Record'
-            : 'Delete / Archive Tenant Record'
-        }
-        message={
-          tenantForDelete
-            ? (tenantForDelete.profile?.status === 'ARCHIVED' || tenantForDelete.tenantProfile?.status === 'ARCHIVED')
-              ? `⚠️ PERMANENT DELETION: Are you sure you want to permanently delete ${tenantForDelete.fullName} and ALL associated records (bills, payments, receipts, water records, electricity readings)? This action CANNOT be undone.`
-              : `Are you sure you want to remove ${tenantForDelete.fullName}? If this tenant has historical billing or payment records, their profile will be safely archived to preserve financial records. If they have no financial records, they will be permanently deleted.`
-            : 'Are you sure you want to remove this tenant record?'
-        }
-        confirmText={
-          tenantForDelete && (tenantForDelete.profile?.status === 'ARCHIVED' || tenantForDelete.tenantProfile?.status === 'ARCHIVED')
-            ? 'Permanently Delete'
-            : 'Confirm Removal'
-        }
-        cancelText="Cancel"
-        isDanger={true}
-        loading={actionLoading}
-        onConfirm={handleConfirmDelete}
-        onCancel={() => {
-          setDeleteModalOpen(false);
-          setTenantForDelete(null);
-        }}
-      />
-
-      {/* Cash Payment Modal */}
-      {cashModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
-          <div className="bg-white border border-slate-200 rounded-xl p-5 max-w-md w-full shadow-2xl text-xs space-y-4 animate-in fade-in zoom-in-95 duration-100">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                  <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-xs">Rs</span>
-                  <span>Record Direct Cash Payment</span>
-                </h3>
-                <p className="text-[11px] text-slate-500">
-                  Receive cash directly and clear tenant dues
-                </p>
-              </div>
-              <button
-                onClick={() => setCashModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 font-bold text-base p-1"
-              >
-                &times;
-              </button>
-            </div>
-
-            <form onSubmit={handleRecordCashPayment} className="space-y-3.5">
-              <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-700">
-                <div className="font-semibold text-slate-900">{cashForm.tenantName}</div>
-                <div className="text-[11px] text-slate-500">Room: {cashForm.roomNumber || 'Former Room'}</div>
-              </div>
-
-              {cashForm.maxDue > 0 && (
-                <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 flex items-center justify-between">
-                  <span className="font-medium">Outstanding Due:</span>
-                  <span className="font-bold font-mono text-sm">{formatCurrencyNPR(cashForm.maxDue)}</span>
-                </div>
-              )}
 
               <div>
-                <label className="block text-slate-700 font-medium mb-1">
-                  Cash Amount Received (NPR) <span className="text-rose-500">*</span>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Agreed Monthly Rent (NPR) <span className="text-rose-500">*</span>
                 </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-2 text-slate-400 font-bold">Rs.</span>
-                  <input
-                    type="number"
-                    required
-                    min={1}
-                    value={cashForm.amount}
-                    onChange={(e) => setCashForm({ ...cashForm, amount: e.target.value })}
-                    placeholder="e.g. 6500"
-                    className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 text-slate-900 font-mono font-bold text-sm focus:outline-none focus:border-slate-900"
-                  />
-                </div>
+                <input
+                  type="number"
+                  required
+                  min={1000}
+                  step={100}
+                  placeholder="e.g. 7000"
+                  value={createForm.monthlyRent}
+                  onChange={(e) =>
+                    setCreateForm({ ...createForm, monthlyRent: e.target.value })
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-slate-900 font-mono font-bold text-xs focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                />
               </div>
 
               <div>
-                <label className="block text-slate-700 font-medium mb-1">
-                  Payment Date (Bikram Sambat BS)
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Move-In Date (Bikram Sambat BS)
                 </label>
                 <NepaliDatePicker
-                  value={cashForm.paymentDateBS}
-                  onChange={(formattedBS) => setCashForm({ ...cashForm, paymentDateBS: formattedBS })}
-                  placeholder="Select payment date"
+                  value={createForm.moveInDateBS}
+                  onChange={(formattedBS) =>
+                    setCreateForm({ ...createForm, moveInDateBS: formattedBS })
+                  }
+                  placeholder="Select Move-In Date"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-700 font-medium mb-1">
-                  Remarks / Notes (Optional)
+                <label className="block font-semibold text-slate-700 mb-1">Number of People</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={createForm.numberOfPeople}
+                  onChange={(e) =>
+                    setCreateForm({
+                      ...createForm,
+                      numberOfPeople: Number(e.target.value),
+                    })
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-slate-900 text-xs focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                />
+              </div>
+            </div>
+
+            <div className="pt-2">
+              <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={createForm.internetEnabled}
+                  onChange={(e) =>
+                    setCreateForm({ ...createForm, internetEnabled: e.target.checked })
+                  }
+                  className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                />
+                <span>Include Internet Service (Billed monthly)</span>
+              </label>
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Citizenship Number / ID
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. 27-01-78-12345"
+                value={createForm.citizenshipNumber}
+                onChange={(e) =>
+                  setCreateForm({ ...createForm, citizenshipNumber: e.target.value })
+                }
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-slate-900 font-mono text-xs focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setCreateModalOpen(false)}
+                disabled={actionLoading}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                loading={actionLoading}
+                className="font-bold"
+              >
+                {actionLoading ? 'Creating...' : 'Create Tenant Agreement'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* 2. Edit Tenant Modal (Allows changing username!) */}
+      {editModalOpen && selectedTenant && (
+        <Modal
+          isOpen={true}
+          onClose={() => setEditModalOpen(false)}
+          title={`Edit Tenant — ${selectedTenant.fullName}`}
+          description="Update personal details, username, agreed rent, and agreement terms"
+          icon={<Edit className="w-5 h-5 text-indigo-600" />}
+          maxWidth="lg"
+        >
+          <form onSubmit={handleUpdateTenant} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Full Name <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
-                  value={cashForm.notes}
-                  onChange={(e) => setCashForm({ ...cashForm, notes: e.target.value })}
-                  placeholder="e.g. Received in cash by Yubraj"
-                  className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-900 focus:outline-none focus:border-slate-900"
+                  required
+                  value={editForm.fullName}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, fullName: e.target.value })
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-slate-900 text-xs focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setCashModalOpen(false)}
-                  disabled={cashSubmitting}
-                  className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={cashSubmitting}
-                  className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5 shadow-sm disabled:opacity-50 transition"
-                >
-                  {cashSubmitting ? 'Recording...' : 'Record Cash Payment & Clear Dues'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Advance Summary & Traceability Modal */}
-      {advanceModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-          <div className="bg-white border border-slate-200 rounded-xl p-5 max-w-2xl w-full shadow-xl text-xs space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div>
-                <h3 className="text-sm font-bold text-slate-900">
-                  Advance & Credit Summary &mdash; {selectedTenant?.fullName}
-                </h3>
-                <p className="text-[11px] text-slate-500">
-                  Room {selectedTenant?.profile?.roomNumber ?? selectedTenant?.tenantProfile?.room?.roomNumber ?? '-'} &bull; @{selectedTenant?.username}
-                </p>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Username <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editForm.username}
+                  onChange={(e) =>
+                    setEditForm({
+                      ...editForm,
+                      username: e.target.value.toLowerCase().replace(/\s+/g, ''),
+                    })
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-slate-900 font-mono text-xs focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                />
               </div>
-              <button
-                onClick={() => {
-                  setAdvanceModalOpen(false);
-                  setAdvanceTenantSummary(null);
-                }}
-                className="text-slate-400 hover:text-slate-600 font-bold text-base"
-              >
-                &times;
-              </button>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Phone Number</label>
+                <input
+                  type="text"
+                  value={editForm.phone}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, phone: e.target.value })
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-slate-900 font-mono text-xs focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Monthly Rent (NPR)
+                </label>
+                <input
+                  type="number"
+                  min={1000}
+                  step={100}
+                  value={editForm.monthlyRent}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, monthlyRent: e.target.value })
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-slate-900 font-mono font-bold text-xs focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Number of People</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={editForm.numberOfPeople}
+                  onChange={(e) =>
+                    setEditForm({
+                      ...editForm,
+                      numberOfPeople: Number(e.target.value),
+                    })
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-slate-900 text-xs focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Move-In Date (BS)
+                </label>
+                <NepaliDatePicker
+                  value={editForm.moveInDateBS}
+                  onChange={(formattedBS) =>
+                    setEditForm({ ...editForm, moveInDateBS: formattedBS })
+                  }
+                  placeholder="Move-in date"
+                />
+              </div>
             </div>
 
-            {advanceLoading ? (
-              <div className="py-12 text-center text-slate-400">Loading advance statement...</div>
-            ) : (
-              <div className="space-y-4">
-                {/* 4 Summary Cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                    <div className="text-[11px] text-slate-500 font-medium">Total Paid (All-Time)</div>
-                    <div className="text-sm font-bold font-mono text-slate-900 mt-1">
-                      {formatCurrencyNPR(advanceTenantSummary?.totalAdvancePaid || 0)}
-                    </div>
-                  </div>
-                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                    <div className="text-[11px] text-slate-500 font-medium">Charges Covered</div>
-                    <div className="text-sm font-bold font-mono text-slate-700 mt-1">
-                      {formatCurrencyNPR(advanceTenantSummary?.advanceConsumed || 0)}
-                    </div>
-                  </div>
-                  <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
-                    <div className="text-[11px] text-emerald-800 font-medium">Remaining Advance Credit</div>
-                    <div className="text-sm font-bold font-mono text-emerald-900 mt-1">
-                      {formatCurrencyNPR(advanceTenantSummary?.remainingAdvance || 0)}
-                    </div>
-                  </div>
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                    <div className="text-[11px] text-amber-800 font-medium">Current Amount Due</div>
-                    <div className="text-sm font-bold font-mono text-amber-900 mt-1">
-                      {formatCurrencyNPR(advanceTenantSummary?.currentAmountDue || 0)}
-                    </div>
-                  </div>
-                </div>
+            <div>
+              <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={editForm.internetEnabled}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, internetEnabled: e.target.checked })
+                  }
+                  className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                />
+                <span>Include Internet Service</span>
+              </label>
+            </div>
 
-                {/* Verified Payments Table */}
-                <div className="space-y-1.5">
-                  <h4 className="font-bold text-slate-900 text-xs">Verified Payment Transactions (Advance Source)</h4>
-                  <div className="border border-slate-200 rounded-lg overflow-hidden">
-                    <table className="w-full text-left text-xs border-collapse">
-                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
-                        <tr>
-                          <th className="px-3 py-2">Date (BS)</th>
-                          <th className="px-3 py-2">Receipt #</th>
-                          <th className="px-3 py-2">Method</th>
-                          <th className="px-3 py-2 text-right">Amount</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {advanceTenantSummary?.advancePayments?.length === 0 ? (
-                          <tr>
-                            <td colSpan={4} className="px-3 py-4 text-center text-slate-400">
-                              No verified payments found.
-                            </td>
-                          </tr>
-                        ) : (
-                          advanceTenantSummary?.advancePayments?.map((p: any) => (
-                            <tr key={p.id} className="hover:bg-slate-50">
-                              <td className="px-3 py-2 font-mono">{p.paymentDateBS}</td>
-                              <td className="px-3 py-2 font-mono text-slate-600">{p.receiptNumber || '-'}</td>
-                              <td className="px-3 py-2">{p.paymentMethod}</td>
-                              <td className="px-3 py-2 font-mono font-bold text-emerald-700 text-right">
-                                {formatCurrencyNPR(p.amount)}
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Citizenship Number / ID
+              </label>
+              <input
+                type="text"
+                value={editForm.citizenshipNumber}
+                onChange={(e) =>
+                  setEditForm({ ...editForm, citizenshipNumber: e.target.value })
+                }
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-slate-900 font-mono text-xs focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+              />
+            </div>
 
-                {/* Bills Consumption History */}
-                <div className="space-y-1.5">
-                  <h4 className="font-bold text-slate-900 text-xs">Charges & Consumption Breakdown</h4>
-                  <div className="border border-slate-200 rounded-lg overflow-hidden">
-                    <table className="w-full text-left text-xs border-collapse">
-                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
-                        <tr>
-                          <th className="px-3 py-2">Period</th>
-                          <th className="px-3 py-2">Water</th>
-                          <th className="px-3 py-2">Total Charge</th>
-                          <th className="px-3 py-2">Paid / Covered</th>
-                          <th className="px-3 py-2">Balance Due</th>
-                          <th className="px-3 py-2 text-right">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {advanceTenantSummary?.billsHistory?.length === 0 ? (
-                          <tr>
-                            <td colSpan={6} className="px-3 py-4 text-center text-slate-400">
-                              No bills generated yet.
-                            </td>
-                          </tr>
-                        ) : (
-                          advanceTenantSummary?.billsHistory?.map((b: any) => (
-                            <tr key={b.id} className="hover:bg-slate-50">
-                              <td className="px-3 py-2 font-mono">{b.yearBS} {b.monthNameBS}</td>
-                              <td className="px-3 py-2 font-mono">{formatCurrencyNPR(b.waterAmount)}</td>
-                              <td className="px-3 py-2 font-mono font-medium">{formatCurrencyNPR(b.totalAmount)}</td>
-                              <td className="px-3 py-2 font-mono text-emerald-700 font-medium">
-                                {formatCurrencyNPR(b.paidAmount)}
-                              </td>
-                              <td className="px-3 py-2 font-mono font-bold">
-                                {b.balanceDue > 0 ? (
-                                  <span className="text-amber-700">{formatCurrencyNPR(b.balanceDue)}</span>
-                                ) : (
-                                  <span className="text-emerald-600">Rs. 0</span>
-                                )}
-                              </td>
-                              <td className="px-3 py-2 text-right">
-                                <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                  b.status === 'PAID'
-                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                    : b.status === 'PARTIALLY_PAID'
-                                    ? 'bg-sky-50 text-sky-700 border border-sky-200'
-                                    : 'bg-amber-50 text-amber-800 border border-amber-200'
-                                }`}>
-                                  {b.status}
-                                </span>
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setEditModalOpen(false)}
+                disabled={actionLoading}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                loading={actionLoading}
+                className="font-bold"
+              >
+                {actionLoading ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
 
-                <div className="flex justify-end pt-2 border-t border-slate-100">
+      {/* 3. Reset Password Modal */}
+      {resetPassModalOpen && selectedTenant && (
+        <Modal
+          isOpen={true}
+          onClose={() => setResetPassModalOpen(false)}
+          title={`Reset Password — ${selectedTenant.fullName}`}
+          description={`Set a new account login password for @${selectedTenant.username}`}
+          icon={<KeyRound className="w-5 h-5 text-indigo-600" />}
+          maxWidth="sm"
+        >
+          <form onSubmit={handleResetPassword} className="space-y-4">
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                New Password <span className="text-rose-500">*</span>
+              </label>
+              <input
+                type="password"
+                required
+                placeholder="Enter new password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-slate-900 text-xs focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setResetPassModalOpen(false)}
+                disabled={actionLoading}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                loading={actionLoading}
+                className="font-bold"
+              >
+                {actionLoading ? 'Updating...' : 'Update Password'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* 4. Move Room Modal */}
+      {moveRoomModalOpen && selectedTenant && (
+        <Modal
+          isOpen={true}
+          onClose={() => setMoveRoomModalOpen(false)}
+          title={`Transfer Room — ${selectedTenant.fullName}`}
+          description="Select an available vacant room to relocate this tenant"
+          icon={<ArrowRightLeft className="w-5 h-5 text-indigo-600" />}
+          maxWidth="sm"
+        >
+          <form onSubmit={handleMoveRoom} className="space-y-4">
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Target Room <span className="text-rose-500">*</span>
+              </label>
+              <select
+                required
+                value={targetRoomId}
+                onChange={(e) => setTargetRoomId(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-slate-900 text-xs focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white"
+              >
+                <option value="">-- Select Vacant Room --</option>
+                {vacantRooms.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    Room {r.roomNumber} ({r.name}) &mdash; Rs. {r.defaultRent}
+                  </option>
+                ))}
+              </select>
+              {vacantRooms.length === 0 && (
+                <p className="text-[11px] text-amber-700 mt-1 font-semibold">
+                  No vacant rooms currently available.
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setMoveRoomModalOpen(false)}
+                disabled={actionLoading}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={!targetRoomId}
+                loading={actionLoading}
+                className="font-bold"
+              >
+                {actionLoading ? 'Relocating...' : 'Confirm Transfer'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* 5. Upload Document Modal */}
+      {docModalOpen && selectedTenant && (
+        <Modal
+          isOpen={true}
+          onClose={() => setDocModalOpen(false)}
+          title={`Citizenship Document — ${selectedTenant.fullName}`}
+          description="Upload citizenship photo/PDF and update national ID number"
+          icon={<FileText className="w-5 h-5 text-indigo-600" />}
+          maxWidth="md"
+        >
+          <form onSubmit={handleUploadDoc} className="space-y-4">
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Citizenship / National ID Number
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. 27-01-78-12345"
+                value={docCitizenshipNo}
+                onChange={(e) => setDocCitizenshipNo(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-slate-900 font-mono text-xs focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Upload Document File (Photo or PDF)
+              </label>
+              <input
+                type="file"
+                accept="image/*,application/pdf"
+                onChange={(e) => setDocFile(e.target.files?.[0] || null)}
+                className="w-full text-xs text-slate-600 file:mr-3 file:py-2 file:px-3.5 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDocModalOpen(false)}
+                disabled={actionLoading}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                loading={actionLoading}
+                className="font-bold"
+              >
+                {actionLoading ? 'Saving...' : 'Save Document Details'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* 6. Move Out Confirmation Modal */}
+      {moveOutModalOpen && tenantForMoveOut && (
+        <ConfirmModal
+          isOpen={true}
+          title={`Process Move-Out for ${tenantForMoveOut.fullName}?`}
+          message="This marks the tenant agreement as concluded, sets move-out date to today, and marks their room as vacant for new tenancy."
+          confirmText="Confirm Move-Out"
+          cancelText="Cancel"
+          loading={actionLoading}
+          onConfirm={handleConfirmMoveOut}
+          onCancel={() => setMoveOutModalOpen(false)}
+        />
+      )}
+
+      {/* 7. Delete / Archive Tenant Modal */}
+      {deleteModalOpen && tenantForDelete && (
+        <ConfirmModal
+          isOpen={true}
+          isDanger={true}
+          title={`Remove or Archive ${tenantForDelete.fullName}?`}
+          message="If this tenant has existing billing or payment records, they will be safely archived to preserve financial history. If no history exists, the account will be deleted."
+          confirmText="Delete / Archive"
+          cancelText="Cancel"
+          loading={actionLoading}
+          onConfirm={handleConfirmDelete}
+          onCancel={() => setDeleteModalOpen(false)}
+        />
+      )}
+
+      {/* 8. Cash Payment Modal */}
+      {cashModalOpen && (
+        <Modal
+          isOpen={true}
+          onClose={() => setCashModalOpen(false)}
+          title={`Record Cash Payment — ${cashForm.tenantName}`}
+          description={`Receive physical cash and clear dues for Room ${cashForm.roomNumber || '—'}`}
+          icon={<Banknote className="w-5 h-5 text-emerald-600" />}
+          maxWidth="sm"
+        >
+          <form onSubmit={handleRecordCashPayment} className="space-y-4">
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Cash Amount (NPR) <span className="text-rose-500">*</span>
+              </label>
+              <div className="relative">
+                <span className="absolute left-3.5 top-2.5 text-slate-400 font-bold">Rs.</span>
+                <input
+                  type="number"
+                  required
+                  min={1}
+                  value={cashForm.amount}
+                  onChange={(e) => setCashForm({ ...cashForm, amount: e.target.value })}
+                  placeholder="Amount"
+                  className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-slate-300 text-slate-900 font-mono font-bold text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                />
+              </div>
+              {cashForm.maxDue > 0 && (
+                <div className="mt-1.5">
                   <button
-                    onClick={() => {
-                      setAdvanceModalOpen(false);
-                      setAdvanceTenantSummary(null);
-                    }}
-                    className="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-lg text-xs transition"
+                    type="button"
+                    onClick={() =>
+                      setCashForm({ ...cashForm, amount: String(cashForm.maxDue) })
+                    }
+                    className="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-800 transition"
                   >
-                    Close
+                    Clear Full Balance (Rs. {cashForm.maxDue})
                   </button>
                 </div>
+              )}
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">Payment Date (BS)</label>
+              <NepaliDatePicker
+                value={cashForm.paymentDateBS}
+                onChange={(formattedBS) =>
+                  setCashForm({ ...cashForm, paymentDateBS: formattedBS })
+                }
+                placeholder="Payment date"
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Notes / Remarks (Optional)
+              </label>
+              <input
+                type="text"
+                value={cashForm.notes}
+                onChange={(e) => setCashForm({ ...cashForm, notes: e.target.value })}
+                placeholder="e.g. Received in cash by Admin"
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-slate-900 text-xs focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setCashModalOpen(false)}
+                disabled={cashSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="success"
+                loading={cashSubmitting}
+                className="font-bold"
+              >
+                {cashSubmitting ? 'Recording...' : 'Record Cash'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* 9. Advance Summary Modal */}
+      {advanceModalOpen && selectedTenant && (
+        <Modal
+          isOpen={true}
+          onClose={() => setAdvanceModalOpen(false)}
+          title={`Advance Balance — ${selectedTenant.fullName}`}
+          description={`Prepaid ledger breakdown for @${selectedTenant.username}`}
+          icon={<PiggyBank className="w-5 h-5 text-purple-600" />}
+          maxWidth="md"
+        >
+          {advanceLoading ? (
+            <div className="py-8 text-center text-slate-400">Loading advance summary...</div>
+          ) : advanceTenantSummary ? (
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl bg-purple-50/70 border border-purple-200/80 text-center">
+                <div className="text-[11px] font-bold text-purple-700 uppercase tracking-wider">
+                  Current Advance Balance
+                </div>
+                <div className="text-2xl font-extrabold text-purple-900 font-mono mt-1">
+                  {formatCurrencyNPR(
+                    advanceTenantSummary.advanceBalance ??
+                      advanceTenantSummary.balance ??
+                      0
+                  )}
+                </div>
+                <div className="text-xs text-purple-700 mt-1">
+                  Automatically offsets future monthly billing totals
+                </div>
               </div>
-            )}
-          </div>
-        </div>
+
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+                  <span className="text-slate-500 font-medium block">Total Advance Added</span>
+                  <span className="font-mono font-bold text-slate-900 text-sm mt-0.5 block">
+                    {formatCurrencyNPR(advanceTenantSummary.totalAdvanceAdded || 0)}
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+                  <span className="text-slate-500 font-medium block">Total Advance Consumed</span>
+                  <span className="font-mono font-bold text-slate-900 text-sm mt-0.5 block">
+                    {formatCurrencyNPR(advanceTenantSummary.totalAdvanceDeducted || 0)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-3 border-t border-slate-100">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setAdvanceModalOpen(false)}
+                >
+                  Close
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="py-6 text-center text-slate-400">
+              No advance records found for this tenant.
+            </div>
+          )}
+        </Modal>
       )}
     </div>
   );

@@ -1,6 +1,8 @@
 'use client';
 
 import React from 'react';
+import { AlertTriangle, Info } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
 
 interface ConfirmModalProps {
   isOpen: boolean;
@@ -28,65 +30,49 @@ export function ConfirmModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-fadeIn">
-      <div className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-sm overflow-hidden transform transition-all animate-scaleUp">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/40 backdrop-blur-xs animate-fadeIn">
+      <div className="bg-white rounded-2xl shadow-modal border border-slate-200/90 w-full max-w-sm overflow-hidden transform transition-all animate-scaleUp">
         <div className="p-5">
           <div className="flex items-start gap-3.5">
             <div
-              className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
+              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
                 isDanger
                   ? 'bg-rose-50 text-rose-600 border border-rose-100'
                   : 'bg-indigo-50 text-indigo-600 border border-indigo-100'
               }`}
             >
               {isDanger ? (
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                  />
-                </svg>
+                <AlertTriangle className="w-5 h-5" />
               ) : (
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
+                <Info className="w-5 h-5" />
               )}
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+              <h3 className="text-sm font-bold text-slate-900 leading-snug">{title}</h3>
               <p className="text-xs text-slate-500 mt-1 leading-relaxed">{message}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-slate-50/80 px-4 py-3 border-t border-slate-100 flex items-center justify-end gap-2">
-          <button
+        <div className="bg-slate-50/80 px-5 py-3 border-t border-slate-100 flex items-center justify-end gap-2">
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             disabled={loading}
             onClick={onCancel}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 active:bg-slate-100 transition shadow-xs disabled:opacity-50"
           >
             {cancelText}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            disabled={loading}
+            variant={isDanger ? 'danger' : 'primary'}
+            size="sm"
+            loading={loading}
             onClick={onConfirm}
-            className={`px-3.5 py-1.5 text-xs font-medium rounded-lg text-white transition shadow-xs disabled:opacity-50 ${
-              isDanger
-                ? 'bg-rose-600 hover:bg-rose-700 active:bg-rose-800'
-                : 'bg-slate-900 hover:bg-slate-800 active:bg-slate-950'
-            }`}
           >
-            {loading ? 'Processing...' : confirmText}
-          </button>
+            {confirmText}
+          </Button>
         </div>
       </div>
     </div>

@@ -1,19 +1,31 @@
 export function getApiBaseUrl(): string {
   if (typeof window !== 'undefined') {
-    // When running in browser, use same-origin relative path /api (proxied via Next.js rewrites to NestJS)
-    return '/api';
+    return process.env.NEXT_PUBLIC_API_URL || '/api';
   }
-  return 'http://127.0.0.1:4000/api';
+
+  const internalBackend =
+    process.env.BACKEND_INTERNAL_URL || 'http://127.0.0.1:4000';
+
+  return `${internalBackend.replace(/\/$/, '')}/api`;
 }
 
 export function getFileUrl(path?: string | null): string {
   if (!path) return '';
-  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    return path;
+  }
+
   if (typeof window !== 'undefined') {
-    // In browser, use same-origin path /uploads/... which Next.js rewrites internally to NestJS
     return path.startsWith('/') ? path : '/' + path;
   }
-  return `http://127.0.0.1:4000${path.startsWith('/') ? path : '/' + path}`;
+
+  const internalBackend =
+    process.env.BACKEND_INTERNAL_URL || 'http://127.0.0.1:4000';
+
+  return `${internalBackend.replace(/\/$/, '')}${
+    path.startsWith('/') ? path : '/' + path
+  }`;
 }
 
 export interface ApiResponse<T = any> {

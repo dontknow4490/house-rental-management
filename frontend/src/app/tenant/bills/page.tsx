@@ -41,6 +41,16 @@ export default function TenantBillsPage() {
     };
   }, []);
 
+  const handleOpenBillDetails = async (b: any) => {
+    setSelectedBill(b);
+    try {
+      const full = await api.get(`/billing/${b.id}`);
+      setSelectedBill(full);
+    } catch (e) {
+      // fallback to b
+    }
+  };
+
   return (
     <div className="space-y-6 text-xs">
       <div className="flex items-center justify-between pb-3 border-b border-slate-200">
@@ -155,6 +165,12 @@ export default function TenantBillsPage() {
                       <span className="text-slate-500 text-[11px]">Room Rent:</span>{' '}
                       <span className="font-mono font-medium text-slate-900">{formatCurrencyNPR(b.rentAmount)}</span>
                     </div>
+                    {b.customPurchasesAmount > 0 && (
+                      <div>
+                        <span className="text-slate-500 text-[11px]">Custom Items:</span>{' '}
+                        <span className="font-mono font-medium text-slate-900">{formatCurrencyNPR(b.customPurchasesAmount)}</span>
+                      </div>
+                    )}
                     <div>
                       <span className="text-slate-500 text-[11px]">Total Bill:</span>{' '}
                       <span className="font-mono font-bold text-slate-900">{formatCurrencyNPR(b.totalAmount)}</span>
@@ -171,7 +187,7 @@ export default function TenantBillsPage() {
 
                   <div className="flex items-center gap-2 self-start sm:self-center">
                     <button
-                      onClick={() => setSelectedBill(b)}
+                      onClick={() => handleOpenBillDetails(b)}
                       className="px-2.5 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium text-xs transition"
                     >
                       Full Details
@@ -196,7 +212,7 @@ export default function TenantBillsPage() {
       {/* Full Details Modal */}
       {selectedBill && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in">
-          <div className="w-full max-w-md bg-white border border-slate-200 rounded-xl p-5 shadow-2xl space-y-4 text-xs">
+          <div className="w-full max-w-md bg-white border border-slate-200 rounded-xl p-5 shadow-2xl space-y-4 text-xs max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <h3 className="font-bold text-sm text-slate-900">
@@ -248,15 +264,32 @@ export default function TenantBillsPage() {
                   <span className="font-mono font-medium text-slate-900">{formatCurrencyNPR(selectedBill.waterAmount)}</span>
                 </div>
               )}
-              {selectedBill.borrowingAmount > 0 && (
-                <div className="flex justify-between py-1 border-b border-slate-50">
-                  <span>4. Borrowed Money Included</span>
-                  <span className="font-mono font-medium text-slate-900">{formatCurrencyNPR(selectedBill.borrowingAmount)}</span>
+              {selectedBill.customPurchasesAmount > 0 && (
+                <div className="py-1 border-b border-slate-50 space-y-1">
+                  <div className="flex justify-between">
+                    <span className="font-semibold text-slate-900">5. Custom Purchases / Extra Charges:</span>
+                    <span className="font-mono font-bold text-slate-900">{formatCurrencyNPR(selectedBill.customPurchasesAmount)}</span>
+                  </div>
+                  {selectedBill.breakdown?.customPurchases?.items && selectedBill.breakdown.customPurchases.items.length > 0 && (
+                    <div className="text-[11px] text-slate-500 bg-slate-50 p-2 rounded border border-slate-200/70 space-y-1">
+                      {selectedBill.breakdown.customPurchases.items.map((item: any) => (
+                        <div key={item.id} className="flex justify-between items-center">
+                          <div>
+                            <span className="font-medium text-slate-800">{item.itemName}</span>
+                            <span className="text-slate-500"> &times; {item.quantity} @ Rs. {item.unitPrice}</span>
+                            {item.purchaseDateBS && <span className="text-[10px] text-slate-400 ml-1">({item.purchaseDateBS})</span>}
+                            {item.note && <div className="text-[10px] text-slate-400 italic">{item.note}</div>}
+                          </div>
+                          <span className="font-mono font-semibold text-slate-900">{formatCurrencyNPR(item.totalAmount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
               {selectedBill.adjustmentsAmount !== 0 && (
                 <div className="flex justify-between py-1 border-b border-slate-50">
-                  <span>5. Adjustments</span>
+                  <span>6. Adjustments</span>
                   <span className="font-mono font-medium text-slate-900">{formatCurrencyNPR(selectedBill.adjustmentsAmount)}</span>
                 </div>
               )}
