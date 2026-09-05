@@ -18,27 +18,16 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Role } from '@prisma/client';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname, join } from 'path';
-import * as fs from 'fs';
-import { getUploadSubdir } from '../common/utils/upload-path.util';
-
-import { validateUploadedFile, sanitizeFileExtension } from '../common/utils/file-upload.util';
-
-const qrStorage = diskStorage({
-  destination: (req, file, cb) => {
-    const uploadPath = getUploadSubdir('qr');
-    cb(null, uploadPath);
-  },
-  filename: (req, file, cb) => {
-    const ext = sanitizeFileExtension(file.originalname, false);
-    cb(null, `esewa_qr_${Date.now()}${ext}`);
-  },
-});
+import { memoryStorage } from 'multer';
+import { CloudinaryService } from '../cloudinary/cloudinary.service';
+import { validateUploadedFile } from '../common/utils/file-upload.util';
 
 @Controller('settings')
 export class SettingsController {
-  constructor(private settingsService: SettingsService) {}
+  constructor(
+    private settingsService: SettingsService,
+    private cloudinaryService: CloudinaryService,
+  ) {}
 
   @Get('public-payment')
   async getPaymentSettings() {
@@ -68,7 +57,7 @@ export class SettingsController {
   @Roles(Role.ADMIN)
   @UseInterceptors(
     FileInterceptor('qrImage', {
-      storage: qrStorage,
+      storage: memoryStorage(),
       limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
       fileFilter: (req, file, cb) => {
         if (!file.mimetype.match(/\/(jpg|jpeg|png|webp)$/)) {
@@ -87,15 +76,42 @@ export class SettingsController {
       throw new BadRequestException('No image file provided');
     }
     validateUploadedFile(file, { allowPdf: false });
-    const relativePath = `/uploads/qr/${file.filename}`;
-    await this.settingsService.updateSettings(
-      { ESEWA_QR_IMAGE: relativePath },
-      adminId,
-      ipAddress,
+
+    // 1. Get existing QR value to clean up after successful update
+    const oldQr = await this.settingsService.getSetting('ESEWA_QR_IMAGE');
+
+    // 2. Upload to Cloudinary public folder
+    const filename = `esewa_qr_${Date.now()}`;
+    const uploadResult = await this.cloudinaryService.uploadPublicAsset(
+      file,
+      'house-rental/public/qr',
+      filename,
     );
+
+    // 3. Update database only after upload succeeds
+    try {
+      await this.settingsService.updateSettings(
+        { ESEWA_QR_IMAGE: uploadResult.secureUrl },
+        adminId,
+        ipAddress,
+      );
+    } catch (dbErr) {
+      // Clean up the newly uploaded asset if database update fails
+      await this.cloudinaryService.deleteAsset(uploadResult.publicId, 'image', 'upload');
+      throw dbErr;
+    }
+
+    // 4. Delete old Cloudinary asset if previously stored on Cloudinary
+    if (oldQr && oldQr.includes('cloudinary.com')) {
+      const oldPublicId = this.cloudinaryService.extractPublicId(oldQr);
+      if (oldPublicId) {
+        await this.cloudinaryService.deleteAsset(oldPublicId, 'image', 'upload');
+      }
+    }
+
     return {
       message: 'eSewa QR code uploaded successfully',
-      qrPath: relativePath,
+      qrPath: uploadResult.secureUrl,
     };
   }
 
@@ -106,6 +122,13 @@ export class SettingsController {
     @CurrentUser('id') adminId: string,
     @Ip() ipAddress: string,
   ) {
+    const currentQr = await this.settingsService.getSetting('ESEWA_QR_IMAGE');
+    if (currentQr && currentQr.includes('cloudinary.com')) {
+      const publicId = this.cloudinaryService.extractPublicId(currentQr);
+      if (publicId) {
+        await this.cloudinaryService.deleteAsset(publicId, 'image', 'upload');
+      }
+    }
     return this.settingsService.removeEsewaQr(adminId, ipAddress);
   }
 }

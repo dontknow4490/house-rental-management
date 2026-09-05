@@ -2,11 +2,13 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NepaliCalendarService } from '../nepali-calendar/nepali-calendar.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { MaintenancePriority, MaintenanceStatus } from '@prisma/client';
+import { CloudinaryService } from '../cloudinary/cloudinary.service';
 
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -30,6 +32,7 @@ export class MaintenanceService {
     private nepaliCalendarService: NepaliCalendarService,
     private auditLogService: AuditLogService,
     private notificationsService: NotificationsService,
+    @Optional() private cloudinaryService?: CloudinaryService,
   ) {}
 
   async createRequest(
@@ -110,7 +113,7 @@ export class MaintenanceService {
   async getRequests(tenantId?: string) {
     const where = tenantId ? { tenantId } : {};
 
-    return this.prisma.maintenanceRequest.findMany({
+    const requests = await this.prisma.maintenanceRequest.findMany({
       where,
       orderBy: { createdAt: 'desc' },
       include: {
@@ -118,6 +121,19 @@ export class MaintenanceService {
         tenant: { select: { fullName: true, username: true, phone: true } },
       },
     });
+
+    if (this.cloudinaryService && this.cloudinaryService.isConfigured()) {
+      for (const req of requests) {
+        if (req.photoPath && req.photoPath.includes('cloudinary.com')) {
+          const publicId = this.cloudinaryService.extractPublicId(req.photoPath);
+          if (publicId) {
+            req.photoPath = this.cloudinaryService.generateSignedUrl(publicId, 3600);
+          }
+        }
+      }
+    }
+
+    return requests;
   }
 
   async updateStatus(

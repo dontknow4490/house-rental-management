@@ -9,6 +9,7 @@ import {
   UploadedFiles,
   BadRequestException,
   NotFoundException,
+  InternalServerErrorException,
   Ip,
   Res,
 } from '@nestjs/common';
@@ -19,36 +20,28 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Role } from '@prisma/client';
 import { AnyFilesInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname, join } from 'path';
+import { memoryStorage } from 'multer';
+import { extname, join, resolve } from 'path';
 import * as fs from 'fs';
+import * as https from 'https';
 import { Response } from 'express';
-import { getUploadSubdir, getUploadsRoot } from '../common/utils/upload-path.util';
-
-import { resolve } from 'path';
-import { validateUploadedFile, sanitizeFileExtension } from '../common/utils/file-upload.util';
-
-const citizenshipStorage = diskStorage({
-  destination: (req, file, cb) => {
-    const uploadPath = getUploadSubdir('private/citizenship');
-    cb(null, uploadPath);
-  },
-  filename: (req, file, cb) => {
-    const ext = sanitizeFileExtension(file.originalname, true);
-    cb(null, `citizenship_${req.params.tenantId}_${Date.now()}${ext}`);
-  },
-});
+import { getUploadsRoot } from '../common/utils/upload-path.util';
+import { CloudinaryService } from '../cloudinary/cloudinary.service';
+import { validateUploadedFile } from '../common/utils/file-upload.util';
 
 @Controller('documents')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.ADMIN) // STRICTLY ADMIN ONLY
 export class DocumentsController {
-  constructor(private documentsService: DocumentsService) {}
+  constructor(
+    private documentsService: DocumentsService,
+    private cloudinaryService: CloudinaryService,
+  ) {}
 
   @Post('citizenship/:tenantId')
   @UseInterceptors(
     AnyFilesInterceptor({
-      storage: citizenshipStorage,
+      storage: memoryStorage(),
       limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
       fileFilter: (req, file, cb) => {
         if (!file.mimetype.match(/\/(jpg|jpeg|png|webp|pdf)$/)) {
@@ -72,14 +65,53 @@ export class DocumentsController {
     if (!file && !citizenshipNumber) {
       throw new BadRequestException('Please provide a citizenship number or select a document to upload');
     }
-    const relativePath = file ? `/uploads/private/citizenship/${file.filename}` : undefined;
-    return this.documentsService.saveCitizenshipDoc(
-      tenantId,
-      relativePath,
-      citizenshipNumber,
-      adminId,
-      ipAddress,
-    );
+
+    let filePath: string | undefined = undefined;
+    let uploadedPublicId: string | null = null;
+
+    if (file) {
+      const filename = `citizenship_${tenantId}_${Date.now()}`;
+      const uploadResult = await this.cloudinaryService.uploadPrivateAsset(
+        file,
+        'house-rental/private/citizenship',
+        filename,
+      );
+      filePath = uploadResult.secureUrl;
+      uploadedPublicId = uploadResult.publicId;
+    }
+
+    // Check if a previous document exists to clean up after successful update
+    let oldDocPath: string | null = null;
+    try {
+      const existing = await this.documentsService.getCitizenshipDoc(tenantId);
+      oldDocPath = existing?.citizenshipDocPath || null;
+    } catch {}
+
+    try {
+      const updated = await this.documentsService.saveCitizenshipDoc(
+        tenantId,
+        filePath,
+        citizenshipNumber,
+        adminId,
+        ipAddress,
+      );
+
+      // Clean up previous Cloudinary asset if replaced
+      if (filePath && oldDocPath && oldDocPath.includes('cloudinary.com')) {
+        const oldPublicId = this.cloudinaryService.extractPublicId(oldDocPath);
+        if (oldPublicId) {
+          await this.cloudinaryService.deleteAsset(oldPublicId, 'image', 'authenticated');
+        }
+      }
+
+      return updated;
+    } catch (dbErr) {
+      // Rollback newly uploaded Cloudinary asset if database save fails
+      if (uploadedPublicId) {
+        await this.cloudinaryService.deleteAsset(uploadedPublicId, 'image', 'authenticated');
+      }
+      throw dbErr;
+    }
   }
 
   @Get('citizenship/:tenantId/view')
@@ -88,7 +120,52 @@ export class DocumentsController {
     @Res() res: Response,
   ) {
     const doc = await this.documentsService.getCitizenshipDoc(tenantId);
-    const sanitizedRelPath = doc.citizenshipDocPath.replace(/^\/?uploads\//, '');
+    const storedPath = doc.citizenshipDocPath;
+
+    if (!storedPath) {
+      throw new NotFoundException('Citizenship document not found for this tenant');
+    }
+
+    // 1. Cloudinary Authenticated Asset (streamed securely to admin, raw Cloudinary URL never exposed)
+    if (storedPath.includes('cloudinary.com') || storedPath.startsWith('cloudinary:')) {
+      const publicId = this.cloudinaryService.extractPublicId(storedPath);
+      if (!publicId) {
+        throw new NotFoundException('Invalid document reference');
+      }
+
+      const ext = extname(storedPath).replace('.', '').toLowerCase() || 'jpg';
+      const signedUrl = this.cloudinaryService.generateSignedDownloadUrl(publicId, ext, 120);
+
+      return new Promise<void>((resolvePromise, rejectPromise) => {
+        https
+          .get(signedUrl, (streamRes) => {
+            if (streamRes.statusCode && streamRes.statusCode >= 400) {
+              res.status(streamRes.statusCode).json({
+                statusCode: streamRes.statusCode,
+                message: 'Failed to retrieve document from secure storage',
+              });
+              return resolvePromise();
+            }
+
+            const contentType =
+              streamRes.headers['content-type'] ||
+              (ext === 'pdf' ? 'application/pdf' : 'image/jpeg');
+            res.setHeader('Content-Type', contentType);
+            res.setHeader('Cache-Control', 'private, no-cache, no-store, must-revalidate');
+            streamRes.pipe(res);
+            streamRes.on('end', () => resolvePromise());
+            streamRes.on('error', (err) => {
+              rejectPromise(new InternalServerErrorException('Error streaming document'));
+            });
+          })
+          .on('error', (err) => {
+            rejectPromise(new InternalServerErrorException('Failed to connect to secure storage'));
+          });
+      });
+    }
+
+    // 2. Legacy Local Filesystem Fallback
+    const sanitizedRelPath = storedPath.replace(/^\/?uploads\//, '');
     const absolutePath = join(getUploadsRoot(), sanitizedRelPath);
     const canonicalPath = resolve(absolutePath);
 

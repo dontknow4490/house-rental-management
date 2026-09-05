@@ -31,8 +31,23 @@ export function validateUploadedFile(
     );
   }
 
-  if (file.path && fs.existsSync(file.path)) {
-    const buffer = Buffer.alloc(12);
+  // 10MB size limit safeguard
+  const maxBytes = 10 * 1024 * 1024;
+  const fileSize = file.size || (file.buffer ? file.buffer.length : 0);
+  if (fileSize > maxBytes) {
+    if (file.path && fs.existsSync(file.path)) {
+      try {
+        fs.unlinkSync(file.path);
+      } catch {}
+    }
+    throw new BadRequestException('File size exceeds the 10MB limit.');
+  }
+
+  let buffer: Buffer | null = null;
+  if (file.buffer) {
+    buffer = file.buffer.subarray(0, 12);
+  } else if (file.path && fs.existsSync(file.path)) {
+    buffer = Buffer.alloc(12);
     let fd: number | null = null;
     try {
       fd = fs.openSync(file.path, 'r');
@@ -42,7 +57,9 @@ export function validateUploadedFile(
         fs.closeSync(fd);
       }
     }
+  }
 
+  if (buffer && buffer.length >= 4) {
     const isJpeg = buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
     const isPng =
       buffer[0] === 0x89 &&
@@ -50,6 +67,7 @@ export function validateUploadedFile(
       buffer[2] === 0x4e &&
       buffer[3] === 0x47;
     const isWebp =
+      buffer.length >= 12 &&
       buffer[0] === 0x52 &&
       buffer[1] === 0x49 &&
       buffer[2] === 0x46 &&
@@ -70,9 +88,11 @@ export function validateUploadedFile(
     }
 
     if (!isValidSignature) {
-      try {
-        fs.unlinkSync(file.path);
-      } catch {}
+      if (file.path && fs.existsSync(file.path)) {
+        try {
+          fs.unlinkSync(file.path);
+        } catch {}
+      }
       throw new BadRequestException(
         'File content validation failed. The uploaded file magic bytes do not match an allowed image/PDF format.',
       );

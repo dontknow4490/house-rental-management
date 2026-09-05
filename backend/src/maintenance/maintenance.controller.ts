@@ -22,28 +22,17 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { Role } from '@prisma/client';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname, join } from 'path';
-import * as fs from 'fs';
-import { getUploadSubdir } from '../common/utils/upload-path.util';
-
-import { validateUploadedFile, sanitizeFileExtension } from '../common/utils/file-upload.util';
-
-const maintenancePhotoStorage = diskStorage({
-  destination: (req, file, cb) => {
-    const uploadPath = getUploadSubdir('maintenance');
-    cb(null, uploadPath);
-  },
-  filename: (req, file, cb) => {
-    const ext = sanitizeFileExtension(file.originalname, false);
-    cb(null, `maintenance_${Date.now()}${ext}`);
-  },
-});
+import { memoryStorage } from 'multer';
+import { CloudinaryService } from '../cloudinary/cloudinary.service';
+import { validateUploadedFile } from '../common/utils/file-upload.util';
 
 @Controller('maintenance')
 @UseGuards(JwtAuthGuard)
 export class MaintenanceController {
-  constructor(private maintenanceService: MaintenanceService) {}
+  constructor(
+    private maintenanceService: MaintenanceService,
+    private cloudinaryService: CloudinaryService,
+  ) {}
 
   @Get()
   async getRequests(@CurrentUser() user: AuthenticatedUser) {
@@ -56,7 +45,7 @@ export class MaintenanceController {
   @Post()
   @UseInterceptors(
     FileInterceptor('photo', {
-      storage: maintenancePhotoStorage,
+      storage: memoryStorage(),
       limits: { fileSize: 10 * 1024 * 1024 },
       fileFilter: (req, file, cb) => {
         if (!file.mimetype.match(/\/(jpg|jpeg|png|webp)$/)) {
@@ -75,8 +64,29 @@ export class MaintenanceController {
     if (file) {
       validateUploadedFile(file, { allowPdf: false });
     }
-    const photoPath = file ? `/uploads/maintenance/${file.filename}` : undefined;
-    return this.maintenanceService.createRequest(dto, tenantId, photoPath, ipAddress);
+
+    let photoPath = undefined;
+    let uploadedPublicId: string | null = null;
+
+    if (file) {
+      const filename = `maintenance_${Date.now()}`;
+      const uploadResult = await this.cloudinaryService.uploadPrivateAsset(
+        file,
+        'house-rental/maintenance',
+        filename,
+      );
+      photoPath = uploadResult.secureUrl;
+      uploadedPublicId = uploadResult.publicId;
+    }
+
+    try {
+      return await this.maintenanceService.createRequest(dto, tenantId, photoPath, ipAddress);
+    } catch (err) {
+      if (uploadedPublicId) {
+        await this.cloudinaryService.deleteAsset(uploadedPublicId, 'image', 'authenticated');
+      }
+      throw err;
+    }
   }
 
   @Put(':id/status')

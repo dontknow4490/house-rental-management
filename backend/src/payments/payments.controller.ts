@@ -26,29 +26,17 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { Role } from '@prisma/client';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname, join } from 'path';
-import * as fs from 'fs';
-import { Response } from 'express';
-import { getUploadSubdir } from '../common/utils/upload-path.util';
-
-import { validateUploadedFile, sanitizeFileExtension } from '../common/utils/file-upload.util';
-
-const proofStorage = diskStorage({
-  destination: (req, file, cb) => {
-    const uploadPath = getUploadSubdir('proofs');
-    cb(null, uploadPath);
-  },
-  filename: (req, file, cb) => {
-    const ext = sanitizeFileExtension(file.originalname, true);
-    cb(null, `payment_proof_${Date.now()}${ext}`);
-  },
-});
+import { memoryStorage } from 'multer';
+import { CloudinaryService } from '../cloudinary/cloudinary.service';
+import { validateUploadedFile } from '../common/utils/file-upload.util';
 
 @Controller('payments')
 @UseGuards(JwtAuthGuard)
 export class PaymentsController {
-  constructor(private paymentsService: PaymentsService) {}
+  constructor(
+    private paymentsService: PaymentsService,
+    private cloudinaryService: CloudinaryService,
+  ) {}
 
   @Get()
   async getPayments(
@@ -66,7 +54,7 @@ export class PaymentsController {
   @Post('submit')
   @UseInterceptors(
     FileInterceptor('proofImage', {
-      storage: proofStorage,
+      storage: memoryStorage(),
       limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
       fileFilter: (req, file, cb) => {
         if (!file.mimetype.match(/\/(jpg|jpeg|png|webp|pdf)$/)) {
@@ -88,8 +76,29 @@ export class PaymentsController {
     if (!file && !dto.proofImagePath) {
       throw new BadRequestException('Payment proof screenshot is required.');
     }
-    const proofPath = file ? `/uploads/proofs/${file.filename}` : dto.proofImagePath;
-    return this.paymentsService.submitPayment(dto, tenantId, proofPath, ipAddress);
+
+    let proofPath = dto.proofImagePath;
+    let uploadedPublicId: string | null = null;
+
+    if (file) {
+      const filename = `payment_proof_${Date.now()}`;
+      const uploadResult = await this.cloudinaryService.uploadPrivateAsset(
+        file,
+        'house-rental/proofs',
+        filename,
+      );
+      proofPath = uploadResult.secureUrl;
+      uploadedPublicId = uploadResult.publicId;
+    }
+
+    try {
+      return await this.paymentsService.submitPayment(dto, tenantId, proofPath, ipAddress);
+    } catch (err) {
+      if (uploadedPublicId) {
+        await this.cloudinaryService.deleteAsset(uploadedPublicId, 'image', 'authenticated');
+      }
+      throw err;
+    }
   }
 
   @Post('cash-payment')

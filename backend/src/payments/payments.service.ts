@@ -3,11 +3,13 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NepaliCalendarService, NEPALI_MONTH_NAMES } from '../nepali-calendar/nepali-calendar.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { PaymentMethod } from '@prisma/client';
+import { CloudinaryService } from '../cloudinary/cloudinary.service';
 
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -18,6 +20,7 @@ export interface SubmitPaymentDto {
   transactionId?: string;
   proofImagePath?: string;
   paymentDateBS?: string;
+  notes?: string;
 }
 
 export interface VerifyPaymentDto {
@@ -40,6 +43,7 @@ export class PaymentsService {
     private nepaliCalendarService: NepaliCalendarService,
     private auditLogService: AuditLogService,
     private notificationsService: NotificationsService,
+    @Optional() private cloudinaryService?: CloudinaryService,
   ) {}
 
   /**
@@ -426,7 +430,7 @@ export class PaymentsService {
     if (status) where.status = status;
     if (tenantId) where.tenantId = tenantId;
 
-    return this.prisma.payment.findMany({
+    const payments = await this.prisma.payment.findMany({
       where,
       orderBy: { createdAt: 'desc' },
       include: {
@@ -451,6 +455,19 @@ export class PaymentsService {
         digitalReceipt: true,
       },
     });
+
+    if (this.cloudinaryService && this.cloudinaryService.isConfigured()) {
+      for (const p of payments) {
+        if (p.proofImagePath && p.proofImagePath.includes('cloudinary.com')) {
+          const publicId = this.cloudinaryService.extractPublicId(p.proofImagePath);
+          if (publicId) {
+            p.proofImagePath = this.cloudinaryService.generateSignedUrl(publicId, 3600);
+          }
+        }
+      }
+    }
+
+    return payments;
   }
 
   async getReceiptById(receiptNumber: string) {
@@ -471,6 +488,19 @@ export class PaymentsService {
 
     if (!receipt) {
       throw new NotFoundException('Receipt not found');
+    }
+
+    if (
+      receipt.payment &&
+      receipt.payment.proofImagePath &&
+      receipt.payment.proofImagePath.includes('cloudinary.com') &&
+      this.cloudinaryService &&
+      this.cloudinaryService.isConfigured()
+    ) {
+      const publicId = this.cloudinaryService.extractPublicId(receipt.payment.proofImagePath);
+      if (publicId) {
+        receipt.payment.proofImagePath = this.cloudinaryService.generateSignedUrl(publicId, 3600);
+      }
     }
 
     return receipt;
