@@ -76,7 +76,10 @@ async function bootstrap() {
   ];
 
   if (process.env.FRONTEND_URL) {
-    allowedOrigins.push(process.env.FRONTEND_URL.replace(/\/$/, ''));
+    const origins = process.env.FRONTEND_URL.split(',')
+      .map((url) => url.trim().replace(/\/$/, ''))
+      .filter(Boolean);
+    allowedOrigins.push(...origins);
   }
 
   if (process.env.NODE_ENV !== 'production' && lanIp) {
