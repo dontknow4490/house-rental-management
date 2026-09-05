@@ -16,16 +16,22 @@ export function getFileUrl(path?: string | null): string {
     return path;
   }
 
+  const apiBase = getApiBaseUrl();
+  const backendOrigin = apiBase.replace(/\/api\/?$/, '');
+  const normalizedPath = path.startsWith('/') ? path : '/' + path;
+
+  if (normalizedPath.startsWith('/uploads/')) {
+    return `${backendOrigin}${normalizedPath}`;
+  }
+
   if (typeof window !== 'undefined') {
-    return path.startsWith('/') ? path : '/' + path;
+    return normalizedPath;
   }
 
   const internalBackend =
     process.env.BACKEND_INTERNAL_URL || 'http://127.0.0.1:4000';
 
-  return `${internalBackend.replace(/\/$/, '')}${
-    path.startsWith('/') ? path : '/' + path
-  }`;
+  return `${internalBackend.replace(/\/$/, '')}${normalizedPath}`;
 }
 
 export interface ApiResponse<T = any> {

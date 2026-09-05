@@ -43,6 +43,10 @@ export class CreateBatchCustomPurchasesDto {
   @IsOptional()
   @IsString()
   purchaseDateBS?: string;
+
+  @IsOptional()
+  @IsString()
+  idempotencyKey?: string;
 }
 
 export class CreateCustomPurchaseDto {
@@ -79,6 +83,10 @@ export class CreateCustomPurchaseDto {
   @IsOptional()
   @IsString()
   note?: string;
+
+  @IsOptional()
+  @IsString()
+  idempotencyKey?: string;
 }
 
 export class UpdateCustomPurchaseDto {

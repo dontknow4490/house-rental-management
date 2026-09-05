@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { api } from '@/lib/api';
 import { formatCurrencyNPR, getTodayBS, NEPALI_MONTH_NAMES } from '@/lib/nepali-date';
+import { generateIdempotencyKey } from '@/lib/idempotency';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { useToast } from '@/lib/toast-context';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -46,12 +47,16 @@ export default function AdminCustomPurchasesPage() {
   const [rooms, setRooms] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Modals
+  // Modals & Locks
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [editingPurchase, setEditingPurchase] = useState<any>(null);
+  const [submittingBatch, setSubmittingBatch] = useState(false);
+  const isSubmittingRef = useRef(false);
+  const isDeletingRef = useRef(false);
+  const idempotencyKeyRef = useRef<string | null>(null);
 
   const [batchItems, setBatchItems] = useState<Array<{ id: string; itemName: string; quantity: number; unitPrice: number; note: string }>>([
     { id: 'item_1', itemName: '', quantity: 1, unitPrice: 0, note: '' },
@@ -125,6 +130,7 @@ export default function AdminCustomPurchasesPage() {
 
   const handleAddPurchase = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingRef.current) return;
     if (!form.roomId) {
       toast.warning('Please select a room');
       return;
@@ -147,13 +153,21 @@ export default function AdminCustomPurchasesPage() {
       }
     }
 
+    if (!idempotencyKeyRef.current) {
+      idempotencyKeyRef.current = generateIdempotencyKey();
+    }
+    const idempotencyKey = idempotencyKeyRef.current;
+
     try {
+      isSubmittingRef.current = true;
+      setSubmittingBatch(true);
       const payload = {
         roomId: form.roomId,
         tenantId: form.tenantId || undefined,
         yearBS: Number(form.yearBS),
         monthBS: Number(form.monthBS),
         purchaseDateBS: form.purchaseDateBS,
+        idempotencyKey,
         items: batchItems.map((it) => ({
           itemName: it.itemName.trim(),
           quantity: Number(it.quantity),
@@ -163,6 +177,7 @@ export default function AdminCustomPurchasesPage() {
       };
 
       await api.post('/custom-purchases/batch', payload);
+      idempotencyKeyRef.current = null;
       setAddModalOpen(false);
       const today = getTodayBS();
       setBatchItems([
@@ -179,6 +194,9 @@ export default function AdminCustomPurchasesPage() {
       toast.success(`Successfully saved ${batchItems.length} purchase items to bill.`);
     } catch (err: any) {
       toast.error(err.message || 'Failed to record custom purchases');
+    } finally {
+      isSubmittingRef.current = false;
+      setSubmittingBatch(false);
     }
   };
 
@@ -221,15 +239,21 @@ export default function AdminCustomPurchasesPage() {
   };
 
   const handleConfirmDelete = async () => {
-    if (!deleteTargetId) return;
+    if (!deleteTargetId || isDeletingRef.current) return;
+    const targetId = deleteTargetId;
     try {
-      await api.delete(`/custom-purchases/${deleteTargetId}`);
+      isDeletingRef.current = true;
+      // Optimistic instant response (0ms)
+      setPurchases((prev) => prev.filter((p) => p.id !== targetId));
       setDeleteModalOpen(false);
       setDeleteTargetId(null);
-      loadData();
+      await api.delete(`/custom-purchases/${targetId}`);
       toast.success('Purchase record removed.');
     } catch (err: any) {
       toast.error(err.message || 'Failed to delete purchase');
+      loadData(); // revert
+    } finally {
+      isDeletingRef.current = false;
     }
   };
 
@@ -699,8 +723,15 @@ export default function AdminCustomPurchasesPage() {
               <Button type="button" variant="outline" size="sm" onClick={() => setAddModalOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" variant="primary" size="sm" className="font-bold shadow-xs">
-                Save Purchases
+              <Button
+                type="submit"
+                variant="primary"
+                size="sm"
+                className="font-bold shadow-xs"
+                disabled={submittingBatch}
+                loading={submittingBatch}
+              >
+                {submittingBatch ? 'Saving...' : 'Save Purchases'}
               </Button>
             </div>
           </form>

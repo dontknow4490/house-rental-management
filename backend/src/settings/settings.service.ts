@@ -61,6 +61,8 @@ export class SettingsService {
     const keyAliases: Record<string, string> = {
       esewaQrImage: 'ESEWA_QR_IMAGE',
       paymentQrCode: 'ESEWA_QR_IMAGE',
+      payment_qr_path: 'ESEWA_QR_IMAGE',
+      qrPath: 'ESEWA_QR_IMAGE',
       esewaAccountName: 'ESEWA_ACCOUNT_NAME',
       esewaId: 'ESEWA_ID',
       electricityRate: 'ELECTRICITY_UNIT_RATE',
@@ -138,6 +140,7 @@ export class SettingsService {
       esewaId: settings.ESEWA_ID || '',
       esewaQrImage: settings.ESEWA_QR_IMAGE || '',
       paymentQrCode: settings.ESEWA_QR_IMAGE || '',
+      payment_qr_path: settings.ESEWA_QR_IMAGE || '',
       bankName: settings.BANK_NAME || '',
       bankAccountName: settings.BANK_ACCOUNT_NAME || '',
       bankAccountNumber: settings.BANK_ACCOUNT_NUMBER || '',

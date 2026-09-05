@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NepaliCalendarService } from '../nepali-calendar/nepali-calendar.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { BillingService } from '../billing/billing.service';
+import { idempotencyStore } from '../common/utils/async-lock.util';
 
 describe('CustomPurchasesService', () => {
   let service: CustomPurchasesService;
@@ -11,6 +12,7 @@ describe('CustomPurchasesService', () => {
   let billingService: any;
 
   beforeEach(async () => {
+    idempotencyStore.clear();
     prismaService = {
       room: {
         findUnique: jest.fn().mockResolvedValue({
@@ -228,6 +230,101 @@ describe('CustomPurchasesService', () => {
 
       // Monthly bills must never be generated on failed transaction
       expect(billingService.generateMonthlyBills).not.toHaveBeenCalled();
+    });
+
+    it('Test B: Two identical custom purchase batch requests with DIFFERENT idempotency keys result in 2 legitimate transactions', async () => {
+      let txCount = 0;
+      prismaService.$transaction.mockImplementation(async (ops: any[]) => {
+        txCount++;
+        return [
+          { id: `cp-tx-${txCount}`, itemName: 'Momo', quantity: 2, unitPrice: 150, totalAmount: 300 },
+        ];
+      });
+
+      const batchDto1 = {
+        roomId: 'room-1',
+        yearBS: 2083,
+        monthBS: 5,
+        idempotencyKey: 'cp-key-001',
+        items: [{ itemName: 'Momo', quantity: 2, unitPrice: 150 }],
+      };
+
+      const batchDto2 = {
+        roomId: 'room-1',
+        yearBS: 2083,
+        monthBS: 5,
+        idempotencyKey: 'cp-key-002', // Different key
+        items: [{ itemName: 'Momo', quantity: 2, unitPrice: 150 }],
+      };
+
+      const res1 = await service.addBatchPurchases(batchDto1, 'admin-1');
+      const res2 = await service.addBatchPurchases(batchDto2, 'admin-1');
+
+      // Exactly TWO transactions executed
+      expect(prismaService.$transaction).toHaveBeenCalledTimes(2);
+      expect(res1.items[0].id).toBe('cp-tx-1');
+      expect(res2.items[0].id).toBe('cp-tx-2');
+    });
+
+    it('Test E: Two identical custom purchase batch requests with SAME idempotency key via Promise.all result in exactly 1 transaction', async () => {
+      let txCount = 0;
+      prismaService.$transaction.mockImplementation(async (ops: any[]) => {
+        txCount++;
+        return [
+          { id: 'cp-concurrent-1', itemName: 'Samosa', quantity: 4, unitPrice: 25, totalAmount: 100 },
+          { id: 'cp-concurrent-2', itemName: 'Tea', quantity: 4, unitPrice: 20, totalAmount: 80 },
+        ];
+      });
+
+      const batchDto = {
+        roomId: 'room-1',
+        yearBS: 2083,
+        monthBS: 5,
+        idempotencyKey: 'cp-concurrent-same-key',
+        items: [
+          { itemName: 'Samosa', quantity: 4, unitPrice: 25 },
+          { itemName: 'Tea', quantity: 4, unitPrice: 20 },
+        ],
+      };
+
+      // Fire 2 concurrent requests simultaneously with the same idempotency key
+      const [res1, res2] = await Promise.all([
+        service.addBatchPurchases(batchDto, 'admin-1'),
+        service.addBatchPurchases(batchDto, 'admin-1'),
+      ]);
+
+      // Exactly ONE transaction was executed
+      expect(prismaService.$transaction).toHaveBeenCalledTimes(1);
+
+      // Both returned identical successful results with 180 total
+      expect(res1.success).toBe(true);
+      expect(res2.success).toBe(true);
+      expect(res1.grandTotal).toBe(180);
+      expect(res2.grandTotal).toBe(180);
+    });
+
+    it('Test F: Custom purchase batch retried with SAME key returns cached result without creating duplicate transactions', async () => {
+      prismaService.$transaction.mockImplementation(async (ops: any[]) => {
+        return [
+          { id: 'cp-retry-1', itemName: 'Chowmein', quantity: 1, unitPrice: 120, totalAmount: 120 },
+        ];
+      });
+
+      const batchDto = {
+        roomId: 'room-1',
+        yearBS: 2083,
+        monthBS: 5,
+        idempotencyKey: 'cp-retry-same-key-99',
+        items: [{ itemName: 'Chowmein', quantity: 1, unitPrice: 120 }],
+      };
+
+      const res1 = await service.addBatchPurchases(batchDto, 'admin-1');
+      expect(prismaService.$transaction).toHaveBeenCalledTimes(1);
+
+      // Simulated network retry
+      const res2 = await service.addBatchPurchases(batchDto, 'admin-1');
+      expect(prismaService.$transaction).toHaveBeenCalledTimes(1);
+      expect(res2.grandTotal).toBe(res1.grandTotal);
     });
   });
 });

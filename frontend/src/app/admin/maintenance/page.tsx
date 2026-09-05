@@ -31,6 +31,8 @@ export default function AdminMaintenancePage() {
   const [notesModalOpen, setNotesModalOpen] = useState(false);
   const [selectedReq, setSelectedReq] = useState<any>(null);
   const [adminNotes, setAdminNotes] = useState('');
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [savingNotes, setSavingNotes] = useState(false);
 
   const loadRequests = async () => {
     try {
@@ -49,38 +51,56 @@ export default function AdminMaintenancePage() {
   }, []);
 
   const handleUpdateStatus = async (id: string, newStatus: string) => {
+    setUpdatingId(id);
+    // Optimistic UI update: perceived 0ms latency
+    const prevRequests = [...requests];
+    setRequests((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, status: newStatus } : r))
+    );
+
     try {
       await api.put(`/maintenance/${id}/status`, { status: newStatus });
-      loadRequests();
-      toast.success(`Request status updated to ${newStatus.replace('_', ' ')}.`);
+      const displayLabel = newStatus === 'NEW' ? 'New' : newStatus === 'IN_PROGRESS' ? 'In Progress' : 'Completed';
+      toast.success(`Request status updated to ${displayLabel}.`);
     } catch (err: any) {
+      setRequests(prevRequests); // Revert on failure
       toast.error(err.message || 'Failed to update status');
+    } finally {
+      setUpdatingId(null);
     }
   };
 
   const handleSaveNotes = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedReq) return;
+    if (!selectedReq || savingNotes) return;
     try {
+      setSavingNotes(true);
       await api.put(`/maintenance/${selectedReq.id}/status`, {
         status: selectedReq.status,
         adminNotes,
       });
+      // Optimistic update
+      setRequests((prev) =>
+        prev.map((r) => (r.id === selectedReq.id ? { ...r, adminNotes } : r))
+      );
       setNotesModalOpen(false);
       setSelectedReq(null);
-      loadRequests();
       toast.success('Admin notes updated.');
     } catch (err: any) {
       toast.error(err.message || 'Failed to save notes');
+    } finally {
+      setSavingNotes(false);
     }
   };
 
-  const pendingCount = requests.filter((r) => r.status === 'PENDING').length;
+  const pendingCount = requests.filter((r) => r.status === 'NEW' || r.status === 'PENDING').length;
   const inProgressCount = requests.filter((r) => r.status === 'IN_PROGRESS').length;
-  const resolvedCount = requests.filter((r) => r.status === 'RESOLVED').length;
+  const resolvedCount = requests.filter((r) => r.status === 'COMPLETED' || r.status === 'RESOLVED').length;
 
   const filteredRequests = requests.filter((r) => {
     if (!filterStatus) return true;
+    if (filterStatus === 'NEW') return r.status === 'NEW' || r.status === 'PENDING';
+    if (filterStatus === 'COMPLETED') return r.status === 'COMPLETED' || r.status === 'RESOLVED';
     return r.status === filterStatus;
   });
 
@@ -147,17 +167,17 @@ export default function AdminMaintenancePage() {
 
           <button
             type="button"
-            onClick={() => setFilterStatus('PENDING')}
+            onClick={() => setFilterStatus('NEW')}
             className={`px-3.5 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 ${
-              filterStatus === 'PENDING'
+              filterStatus === 'NEW'
                 ? 'bg-amber-600 text-white shadow-xs'
                 : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
-            <span>Pending</span>
+            <span>New (Pending)</span>
             <span
               className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
-                filterStatus === 'PENDING' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+                filterStatus === 'NEW' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
               }`}
             >
               {pendingCount}
@@ -185,17 +205,17 @@ export default function AdminMaintenancePage() {
 
           <button
             type="button"
-            onClick={() => setFilterStatus('RESOLVED')}
+            onClick={() => setFilterStatus('COMPLETED')}
             className={`px-3.5 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 ${
-              filterStatus === 'RESOLVED'
+              filterStatus === 'COMPLETED'
                 ? 'bg-emerald-600 text-white shadow-xs'
                 : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
-            <span>Resolved</span>
+            <span>Completed</span>
             <span
               className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
-                filterStatus === 'RESOLVED' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+                filterStatus === 'COMPLETED' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
               }`}
             >
               {resolvedCount}
@@ -268,13 +288,14 @@ export default function AdminMaintenancePage() {
 
                       <td className="px-4 py-3.5">
                         <select
-                          value={r.status}
+                          value={r.status === 'PENDING' ? 'NEW' : r.status === 'RESOLVED' ? 'COMPLETED' : r.status}
+                          disabled={updatingId === r.id}
                           onChange={(e) => handleUpdateStatus(r.id, e.target.value)}
-                          className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-xs font-bold focus:outline-none focus:border-indigo-500"
+                          className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-xs font-bold focus:outline-none focus:border-indigo-500 disabled:opacity-50"
                         >
-                          <option value="PENDING">Pending</option>
+                          <option value="NEW">New (Pending)</option>
                           <option value="IN_PROGRESS">In Progress</option>
-                          <option value="RESOLVED">Resolved</option>
+                          <option value="COMPLETED">Completed</option>
                         </select>
                       </td>
 

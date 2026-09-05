@@ -8,6 +8,7 @@ import {
   UseGuards,
   UseInterceptors,
   UploadedFile,
+  UploadedFiles,
   BadRequestException,
   Ip,
 } from '@nestjs/common';
@@ -17,7 +18,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Role } from '@prisma/client';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, AnyFilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { validateUploadedFile } from '../common/utils/file-upload.util';
@@ -56,7 +57,7 @@ export class SettingsController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @UseInterceptors(
-    FileInterceptor('qrImage', {
+    AnyFilesInterceptor({
       storage: memoryStorage(),
       limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
       fileFilter: (req, file, cb) => {
@@ -68,10 +69,11 @@ export class SettingsController {
     }),
   )
   async uploadEsewaQr(
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFiles() files: Express.Multer.File[] | Express.Multer.File,
     @CurrentUser('id') adminId: string,
     @Ip() ipAddress: string,
   ) {
+    const file = Array.isArray(files) ? (files.length > 0 ? files[0] : undefined) : files;
     if (!file) {
       throw new BadRequestException('No image file provided');
     }
@@ -91,7 +93,9 @@ export class SettingsController {
     // 3. Update database only after upload succeeds
     try {
       await this.settingsService.updateSettings(
-        { ESEWA_QR_IMAGE: uploadResult.secureUrl },
+        {
+          ESEWA_QR_IMAGE: uploadResult.secureUrl,
+        },
         adminId,
         ipAddress,
       );
@@ -112,7 +116,32 @@ export class SettingsController {
     return {
       message: 'eSewa QR code uploaded successfully',
       qrPath: uploadResult.secureUrl,
+      url: uploadResult.secureUrl,
+      payment_qr_path: uploadResult.secureUrl,
     };
+  }
+
+  @Post('qr-code')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @UseInterceptors(
+    AnyFilesInterceptor({
+      storage: memoryStorage(),
+      limits: { fileSize: 10 * 1024 * 1024 },
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype.match(/\/(jpg|jpeg|png|webp)$/)) {
+          return cb(new BadRequestException('Only JPG, JPEG, PNG, and WEBP image files are allowed!'), false);
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  async uploadEsewaQrAlias(
+    @UploadedFiles() files: Express.Multer.File[] | Express.Multer.File,
+    @CurrentUser('id') adminId: string,
+    @Ip() ipAddress: string,
+  ) {
+    return this.uploadEsewaQr(files, adminId, ipAddress);
   }
 
   @Delete('qr')

@@ -140,23 +140,32 @@ export default function AdminSettingsPage() {
     }
   };
 
+  const [qrUploading, setQrUploading] = useState(false);
+
   const handleQrUpload = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!qrFile) return;
+    if (!qrFile || qrUploading) return;
 
     const formData = new FormData();
+    formData.append('qrImage', qrFile);
     formData.append('qrCode', qrFile);
 
     try {
-      setSaving(true);
-      const res = await api.post('/settings/qr-code', formData);
-      setSettings((prev) => ({ ...prev, payment_qr_path: res.qrPath }));
+      setQrUploading(true);
+      const res = await api.post('/settings/upload-qr', formData);
+      const newUrl = res.qrPath || res.url || res.payment_qr_path;
+      setSettings((prev) => ({
+        ...prev,
+        ESEWA_QR_IMAGE: newUrl,
+        payment_qr_path: newUrl,
+        esewaQrImage: newUrl,
+      }));
       setQrFile(null);
       toast.success('Payment QR Code image updated successfully.');
     } catch (err: any) {
       toast.error(err.message || 'Failed to upload QR code');
     } finally {
-      setSaving(false);
+      setQrUploading(false);
     }
   };
 
@@ -404,11 +413,11 @@ export default function AdminSettingsPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex flex-col items-center justify-center p-5 bg-slate-50 rounded-2xl border border-slate-200">
-                {settings.payment_qr_path ? (
+                {(settings.payment_qr_path || settings.ESEWA_QR_IMAGE || settings.esewaQrImage) ? (
                   <div className="text-center space-y-2">
                     <div className="w-48 h-48 rounded-xl overflow-hidden border border-slate-200 bg-white p-2 shadow-xs mx-auto">
                       <img
-                        src={getFileUrl(settings.payment_qr_path)}
+                        src={getFileUrl(settings.payment_qr_path || settings.ESEWA_QR_IMAGE || settings.esewaQrImage)}
                         alt="Payment QR code"
                         className="w-full h-full object-contain"
                       />

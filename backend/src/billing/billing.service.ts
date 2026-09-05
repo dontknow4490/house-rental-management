@@ -348,32 +348,31 @@ export class BillingService {
       throw new NotFoundException('Monthly bill not found');
     }
 
-    // Retrieve detailed line items
-    const electricity = await this.prisma.electricityReading.findFirst({
-      where: { roomId: bill.roomId, yearBS: bill.yearBS, monthBS: bill.monthBS },
-    });
-
-    const waterPurchases = await this.prisma.waterPurchase.findMany({
-      where: {
-        OR: [
-          { billId: bill.id },
-          { roomId: bill.roomId, yearBS: bill.yearBS, monthBS: bill.monthBS },
-        ],
-      },
-    });
-
-    const customPurchases = await this.prisma.customPurchase.findMany({
-      where: {
-        OR: [
-          { billId: bill.id },
-          { roomId: bill.roomId, yearBS: bill.yearBS, monthBS: bill.monthBS },
-        ],
-      },
-    });
-
-    const adjustments = await this.prisma.adjustment.findMany({
-      where: { roomId: bill.roomId, tenantId: bill.tenantId, yearBS: bill.yearBS, monthBS: bill.monthBS },
-    });
+    // Retrieve detailed line items in parallel
+    const [electricity, waterPurchases, customPurchases, adjustments] = await Promise.all([
+      this.prisma.electricityReading.findFirst({
+        where: { roomId: bill.roomId, yearBS: bill.yearBS, monthBS: bill.monthBS },
+      }),
+      this.prisma.waterPurchase.findMany({
+        where: {
+          OR: [
+            { billId: bill.id },
+            { roomId: bill.roomId, yearBS: bill.yearBS, monthBS: bill.monthBS },
+          ],
+        },
+      }),
+      this.prisma.customPurchase.findMany({
+        where: {
+          OR: [
+            { billId: bill.id },
+            { roomId: bill.roomId, yearBS: bill.yearBS, monthBS: bill.monthBS },
+          ],
+        },
+      }),
+      this.prisma.adjustment.findMany({
+        where: { roomId: bill.roomId, tenantId: bill.tenantId, yearBS: bill.yearBS, monthBS: bill.monthBS },
+      }),
+    ]);
 
     const tenantName = bill.tenant?.fullName || bill.tenant?.username || 'Tenant';
     const numPeople = bill.tenant?.tenantProfile?.numberOfPeople || 1;
@@ -504,9 +503,6 @@ export class BillingService {
 
   async getTenantActiveBill(tenantId: string) {
     const todayBS = this.nepaliCalendarService.getCurrentNepaliDate();
-
-    // Ensure tenant bills and advance are reconciled with all verified payments
-    await this.reconcileTenantBillsAndAdvance(tenantId);
 
     const tenantProfile = await this.prisma.tenantProfile.findUnique({
       where: { userId: tenantId },
@@ -814,8 +810,12 @@ export class BillingService {
         tenantId,
         status: 'PENDING_VERIFICATION',
       },
+      select: {
+        id: true,
+        billId: true,
+      },
     });
-    const hasPending = pendingPayments.length > 0;
+    const pendingBillIds = new Set(pendingPayments.map((p) => p.billId).filter(Boolean));
 
     let verifiedPool = Number(
       verifiedPayments.reduce((acc, curr) => acc + Number(curr.amount), 0).toFixed(2),
@@ -823,6 +823,8 @@ export class BillingService {
 
     for (const b of allBills) {
       const total = Number(b.totalAmount.toFixed(2));
+      const isThisBillPending = pendingBillIds.has(b.id);
+
       if (verifiedPool >= total) {
         await this.prisma.monthlyBill.update({
           where: { id: b.id },
@@ -842,7 +844,7 @@ export class BillingService {
           data: {
             paidAmount: paid,
             balanceDue: due,
-            status: hasPending ? 'PENDING_VERIFICATION' : (due === 0 ? 'PAID' : 'PARTIALLY_PAID'),
+            status: isThisBillPending ? 'PENDING_VERIFICATION' : (due === 0 ? 'PAID' : 'PARTIALLY_PAID'),
           },
         });
         verifiedPool = 0;
@@ -852,7 +854,7 @@ export class BillingService {
           data: {
             paidAmount: 0,
             balanceDue: total,
-            status: hasPending ? 'PENDING_VERIFICATION' : 'UNPAID',
+            status: isThisBillPending ? 'PENDING_VERIFICATION' : 'UNPAID',
           },
         });
       }
@@ -976,84 +978,86 @@ export class BillingService {
     const targetYear = yearBS || todayBS.yearBS;
     const targetMonth = monthBS || todayBS.monthBS;
 
-    // Current month bills
-    const currentMonthBills = await this.prisma.monthlyBill.findMany({
-      where: { yearBS: targetYear, monthBS: targetMonth },
-    });
+    // Parallel database aggregations — push computation to PostgreSQL engine for near-instant response
+    const [
+      currentMonthAgg,
+      allBillsAgg,
+      verifiedPaymentsAgg,
+      pendingPaymentsAgg,
+      rejectedPaymentsCount,
+      allPaymentsCount,
+      activeProfiles,
+      waterPurchasesAgg,
+      customPurchasesAgg,
+      electricityAgg,
+      electricityDashboard,
+      totalRooms,
+    ] = await Promise.all([
+      this.prisma.monthlyBill.aggregate({
+        where: { yearBS: targetYear, monthBS: targetMonth },
+        _sum: { paidAmount: true, balanceDue: true, totalAmount: true },
+      }),
+      this.prisma.monthlyBill.aggregate({
+        _sum: { totalAmount: true, paidAmount: true, balanceDue: true },
+      }),
+      this.prisma.payment.aggregate({
+        where: { status: 'VERIFIED' },
+        _sum: { amount: true },
+        _count: { id: true },
+      }),
+      this.prisma.payment.aggregate({
+        where: { status: 'PENDING_VERIFICATION' },
+        _sum: { amount: true },
+        _count: { id: true },
+      }),
+      this.prisma.payment.count({ where: { status: 'REJECTED' } }),
+      this.prisma.payment.count(),
+      this.prisma.tenantProfile.findMany({
+        where: { status: 'ACTIVE' },
+        select: { monthlyRent: true, advanceBalance: true },
+      }),
+      this.prisma.waterPurchase.aggregate({
+        _sum: { totalAmount: true },
+      }),
+      this.prisma.customPurchase.aggregate({
+        _sum: { totalAmount: true },
+      }),
+      this.prisma.electricityReading.aggregate({
+        _sum: { totalCharge: true },
+      }),
+      this.prisma.electricityReading.count({
+        where: { yearBS: targetYear, monthBS: targetMonth },
+      }),
+      this.prisma.room.count(),
+    ]);
 
-    // All-time bills
-    const allBills = await this.prisma.monthlyBill.findMany();
+    const totalVerifiedPaymentsAmount = Number((verifiedPaymentsAgg._sum.amount || 0).toFixed(2));
+    const verifiedPaymentsCount = verifiedPaymentsAgg._count.id || 0;
 
-    // Verified payments ledger (the true source of truth for collected money)
-    const allVerifiedPayments = await this.prisma.payment.findMany({
-      where: { status: 'VERIFIED' },
-    });
-    const totalVerifiedPaymentsAmount = Number(
-      allVerifiedPayments.reduce((acc, curr) => acc + curr.amount, 0).toFixed(2),
-    );
-    const verifiedPaymentsCount = allVerifiedPayments.length;
+    const pendingPaymentsCount = pendingPaymentsAgg._count.id || 0;
+    const pendingPaymentsAmount = Number((pendingPaymentsAgg._sum.amount || 0).toFixed(2));
 
-    // Pending payments count and total
-    const pendingPayments = await this.prisma.payment.findMany({
-      where: { status: 'PENDING_VERIFICATION' },
-    });
-    const pendingPaymentsCount = pendingPayments.length;
-    const pendingPaymentsAmount = Number(
-      pendingPayments.reduce((acc, curr) => acc + curr.amount, 0).toFixed(2),
-    );
-
-    // Rejected payments count
-    const rejectedPaymentsCount = await this.prisma.payment.count({
-      where: { status: 'REJECTED' },
-    });
-    const allPaymentsCount = await this.prisma.payment.count();
-
-    // Active advance balance held across active tenant profiles
-    const activeProfiles = await this.prisma.tenantProfile.findMany({
-      where: { status: 'ACTIVE' },
-    });
     const totalAdvanceBalance = Number(
       activeProfiles.reduce((acc, curr) => acc + (curr.advanceBalance || 0), 0).toFixed(2),
     );
 
-    // Total bills billed and collected
-    const totalBilledAllTime = Number(allBills.reduce((acc, curr) => acc + curr.totalAmount, 0).toFixed(2));
-    const totalBilledCollectedAllTime = Number(allBills.reduce((acc, curr) => acc + curr.paidAmount, 0).toFixed(2));
-    const totalOutstandingAllTime = Number(allBills.reduce((acc, curr) => acc + curr.balanceDue, 0).toFixed(2));
+    const totalBilledAllTime = Number((allBillsAgg._sum.totalAmount || 0).toFixed(2));
+    const totalBilledCollectedAllTime = Number((allBillsAgg._sum.paidAmount || 0).toFixed(2));
+    const totalOutstandingAllTime = Number((allBillsAgg._sum.balanceDue || 0).toFixed(2));
 
-    // True Total Collected All-Time from verified ledger
     const totalCollectedAllTime = totalVerifiedPaymentsAmount;
 
-    // Current month metrics
-    const currentMonthCollected = Number(currentMonthBills.reduce((acc, curr) => acc + curr.paidAmount, 0).toFixed(2));
-    const currentMonthOutstanding = Number(currentMonthBills.reduce((acc, curr) => acc + curr.balanceDue, 0).toFixed(2));
-    const currentMonthTotalBilled = Number(currentMonthBills.reduce((acc, curr) => acc + curr.totalAmount, 0).toFixed(2));
+    const currentMonthCollected = Number((currentMonthAgg._sum.paidAmount || 0).toFixed(2));
+    const currentMonthOutstanding = Number((currentMonthAgg._sum.balanceDue || 0).toFixed(2));
+    const currentMonthTotalBilled = Number((currentMonthAgg._sum.totalAmount || 0).toFixed(2));
 
-    // Base expected rent for current month (if bills generated, sum totalAmount; otherwise base rent of occupied rooms)
-    const baseOccupiedRent = activeProfiles.reduce((acc, curr) => acc + curr.monthlyRent, 0);
+    const baseOccupiedRent = activeProfiles.reduce((acc, curr) => acc + (curr.monthlyRent || 0), 0);
     const expectedRentThisMonth = currentMonthTotalBilled > 0 ? currentMonthTotalBilled : baseOccupiedRent;
 
-    // Component totals all-time
-    const allWaterPurchases = await this.prisma.waterPurchase.findMany();
-    const totalWaterPurchasesAllTime = Number(
-      allWaterPurchases.reduce((acc, curr) => acc + curr.totalAmount, 0).toFixed(2),
-    );
+    const totalWaterPurchasesAllTime = Number((waterPurchasesAgg._sum.totalAmount || 0).toFixed(2));
+    const totalCustomPurchasesAllTime = Number((customPurchasesAgg._sum.totalAmount || 0).toFixed(2));
+    const totalElectricityAllTime = Number((electricityAgg._sum.totalCharge || 0).toFixed(2));
 
-    const allCustomPurchases = await this.prisma.customPurchase.findMany();
-    const totalCustomPurchasesAllTime = Number(
-      allCustomPurchases.reduce((acc, curr) => acc + curr.totalAmount, 0).toFixed(2),
-    );
-
-    const allElectricityReadings = await this.prisma.electricityReading.findMany();
-    const totalElectricityAllTime = Number(
-      allElectricityReadings.reduce((acc, curr) => acc + (curr.totalCharge || 0), 0).toFixed(2),
-    );
-
-    const electricityDashboard = await this.prisma.electricityReading.count({
-      where: { yearBS: targetYear, monthBS: targetMonth },
-    });
-
-    const totalRooms = await this.prisma.room.count();
     const occupiedRooms = activeProfiles.length;
     const vacantRooms = Math.max(0, totalRooms - occupiedRooms);
 

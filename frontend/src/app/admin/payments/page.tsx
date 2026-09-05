@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { api, getFileUrl } from '@/lib/api';
 import { formatCurrencyNPR } from '@/lib/nepali-date';
 import { ReceiptModal, ReceiptData } from '@/components/ReceiptModal';
@@ -48,6 +48,8 @@ export default function AdminPaymentsPage() {
   const [selectedPaymentForVerify, setSelectedPaymentForVerify] = useState<any>(null);
   const [selectedPaymentForDetails, setSelectedPaymentForDetails] = useState<any>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const isVerifyingRef = useRef(false);
+  const isRejectingRef = useRef(false);
 
   // Digital Receipt Modal
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
@@ -92,45 +94,73 @@ export default function AdminPaymentsPage() {
   };
 
   const handleConfirmVerify = async () => {
-    if (!selectedPaymentForVerify) return;
+    if (!selectedPaymentForVerify || isVerifyingRef.current) return;
+    const targetId = selectedPaymentForVerify.id;
 
     try {
+      isVerifyingRef.current = true;
       setActionLoading(true);
-      const res = await api.put(`/payments/${selectedPaymentForVerify.id}/verify`, {
+
+      // Instant optimistic UI response (0ms)
+      setPayments((prev) =>
+        prev.map((p) =>
+          p.id === targetId
+            ? { ...p, status: 'VERIFIED', verifiedAt: new Date().toISOString() }
+            : p
+        )
+      );
+      setVerifyModalOpen(false);
+
+      const res = await api.put(`/payments/${targetId}/verify`, {
         verified: true,
       });
       toast.success('Payment verified and official digital receipt issued.');
-      setVerifyModalOpen(false);
       setSelectedPaymentForVerify(null);
-      loadPayments();
+      loadPayments(true);
       if (res.receipt) {
         setReceiptData(res.receipt);
       }
     } catch (err: any) {
       toast.error(err.message || 'Failed to verify payment');
+      loadPayments(true); // rollback on error
     } finally {
+      isVerifyingRef.current = false;
       setActionLoading(false);
     }
   };
 
   const handleRejectSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedPaymentForReject) return;
+    if (!selectedPaymentForReject || isRejectingRef.current) return;
+    const targetId = selectedPaymentForReject.id;
 
     try {
+      isRejectingRef.current = true;
       setActionLoading(true);
-      await api.put(`/payments/${selectedPaymentForReject.id}/verify`, {
+
+      // Instant optimistic UI response (0ms)
+      setPayments((prev) =>
+        prev.map((p) =>
+          p.id === targetId
+            ? { ...p, status: 'REJECTED' }
+            : p
+        )
+      );
+      setRejectModalOpen(false);
+
+      await api.put(`/payments/${targetId}/verify`, {
         verified: false,
         rejectionReason: rejectionReason || 'Payment proof is invalid',
       });
-      setRejectModalOpen(false);
       setSelectedPaymentForReject(null);
       setRejectionReason('');
-      loadPayments();
+      loadPayments(true);
       toast.warning('Payment marked as rejected. Tenant has been notified.');
     } catch (err: any) {
       toast.error(err.message || 'Failed to reject payment');
+      loadPayments(true); // rollback
     } finally {
+      isRejectingRef.current = false;
       setActionLoading(false);
     }
   };

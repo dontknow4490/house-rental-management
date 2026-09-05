@@ -4,6 +4,7 @@ import { NepaliCalendarService } from '../nepali-calendar/nepali-calendar.servic
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { BillingService } from '../billing/billing.service';
 import { CreateCustomPurchaseDto, UpdateCustomPurchaseDto, CreateBatchCustomPurchasesDto } from './custom-purchases.dto';
+import { executeWithIdempotency } from '../common/utils/async-lock.util';
 
 @Injectable()
 export class CustomPurchasesService {
@@ -71,73 +72,75 @@ export class CustomPurchasesService {
     const monthBS = dto.monthBS !== undefined && dto.monthBS !== null ? Number(dto.monthBS) : todayBS.monthBS;
     const purchaseDateBS = dto.purchaseDateBS || todayBS.nepaliFormatted;
 
-    // Transactional batch creation: entire operation succeeds or fails as one unit
-    const createdPurchases = await this.prisma.$transaction(
-      sanitizedItems.map((item) =>
-        this.prisma.customPurchase.create({
-          data: {
-            roomId: dto.roomId,
-            tenantId,
-            itemName: item.itemName,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            totalAmount: item.totalAmount,
+    return await executeWithIdempotency('batch_custom_purchases', adminId, dto.idempotencyKey, async () => {
+      // Transactional batch creation: entire operation succeeds or fails as one unit
+      const createdPurchases = await this.prisma.$transaction(
+        sanitizedItems.map((item) =>
+          this.prisma.customPurchase.create({
+            data: {
+              roomId: dto.roomId,
+              tenantId,
+              itemName: item.itemName,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              totalAmount: item.totalAmount,
+              yearBS,
+              monthBS,
+              purchaseDateBS,
+              purchaseDateAD: new Date(),
+              isSettled: false,
+              note: item.note,
+            },
+          }),
+        ),
+      );
+
+      const totalBatchAmount = Number(
+        sanitizedItems.reduce((acc, curr) => acc + curr.totalAmount, 0).toFixed(2),
+      );
+
+      // Audit log for the batch
+      await this.auditLogService.log({
+        userId: adminId,
+        action: 'CUSTOM_PURCHASE_BATCH_ADDED',
+        details: {
+          itemCount: createdPurchases.length,
+          totalAmount: totalBatchAmount,
+          roomNumber: room.roomNumber,
+          tenantId,
+          items: sanitizedItems.map((it) => ({
+            name: it.itemName,
+            qty: it.quantity,
+            rate: it.unitPrice,
+            subtotal: it.totalAmount,
+          })),
+        },
+        ipAddress,
+      });
+
+      // Recalculate monthly bills only after the batch has been successfully persisted
+      try {
+        await this.billingService.generateMonthlyBills(
+          {
             yearBS,
             monthBS,
-            purchaseDateBS,
-            purchaseDateAD: new Date(),
-            isSettled: false,
-            note: item.note,
+            roomId: dto.roomId,
           },
-        }),
-      ),
-    );
+          adminId,
+          ipAddress,
+        );
+      } catch (e) {
+        console.error('[CustomPurchasesService.addBatchPurchases generateMonthlyBills error]:', e);
+      }
 
-    const totalBatchAmount = Number(
-      sanitizedItems.reduce((acc, curr) => acc + curr.totalAmount, 0).toFixed(2),
-    );
-
-    // Audit log for the batch
-    await this.auditLogService.log({
-      userId: adminId,
-      action: 'CUSTOM_PURCHASE_BATCH_ADDED',
-      details: {
-        itemCount: createdPurchases.length,
+      return {
+        success: true,
+        message: `Successfully added ${createdPurchases.length} purchase items`,
         totalAmount: totalBatchAmount,
-        roomNumber: room.roomNumber,
-        tenantId,
-        items: sanitizedItems.map((it) => ({
-          name: it.itemName,
-          qty: it.quantity,
-          rate: it.unitPrice,
-          subtotal: it.totalAmount,
-        })),
-      },
-      ipAddress,
+        grandTotal: totalBatchAmount,
+        items: createdPurchases,
+      };
     });
-
-    // Recalculate monthly bills only after the batch has been successfully persisted
-    try {
-      await this.billingService.generateMonthlyBills(
-        {
-          yearBS,
-          monthBS,
-          roomId: dto.roomId,
-        },
-        adminId,
-        ipAddress,
-      );
-    } catch (e) {
-      console.error('[CustomPurchasesService.addBatchPurchases generateMonthlyBills error]:', e);
-    }
-
-    return {
-      success: true,
-      message: `Successfully added ${createdPurchases.length} purchase items`,
-      totalAmount: totalBatchAmount,
-      grandTotal: totalBatchAmount,
-      items: createdPurchases,
-    };
   }
 
   async addPurchase(dto: CreateCustomPurchaseDto, adminId: string, ipAddress?: string) {
@@ -171,54 +174,56 @@ export class CustomPurchasesService {
     const monthBS = dto.monthBS !== undefined && dto.monthBS !== null ? Number(dto.monthBS) : todayBS.monthBS;
     const purchaseDateBS = dto.purchaseDateBS || todayBS.nepaliFormatted;
 
-    const purchase = await this.prisma.customPurchase.create({
-      data: {
-        roomId: dto.roomId,
-        tenantId,
-        itemName,
-        quantity: qty,
-        unitPrice,
-        totalAmount,
-        yearBS,
-        monthBS,
-        purchaseDateBS,
-        purchaseDateAD: new Date(),
-        isSettled: false,
-        note: dto.note?.trim() || null,
-      },
-    });
-
-    await this.auditLogService.log({
-      userId: adminId,
-      action: 'CUSTOM_PURCHASE_ADDED',
-      details: {
-        purchaseId: purchase.id,
-        roomNumber: room.roomNumber,
-        itemName,
-        quantity: qty,
-        unitPrice,
-        totalAmount,
-        tenantId,
-      },
-      ipAddress,
-    });
-
-    // Automatically recalculate and update the MonthlyBill for this room and month
-    try {
-      await this.billingService.generateMonthlyBills(
-        {
+    return await executeWithIdempotency('single_custom_purchase', adminId, dto.idempotencyKey, async () => {
+      const purchase = await this.prisma.customPurchase.create({
+        data: {
+          roomId: dto.roomId,
+          tenantId,
+          itemName,
+          quantity: qty,
+          unitPrice,
+          totalAmount,
           yearBS,
           monthBS,
-          roomId: dto.roomId,
+          purchaseDateBS,
+          purchaseDateAD: new Date(),
+          isSettled: false,
+          note: dto.note?.trim() || null,
         },
-        adminId,
-        ipAddress,
-      );
-    } catch (e) {
-      console.error('[CustomPurchasesService.addPurchase generateMonthlyBills error]:', e);
-    }
+      });
 
-    return purchase;
+      await this.auditLogService.log({
+        userId: adminId,
+        action: 'CUSTOM_PURCHASE_ADDED',
+        details: {
+          purchaseId: purchase.id,
+          roomNumber: room.roomNumber,
+          itemName,
+          quantity: qty,
+          unitPrice,
+          totalAmount,
+          tenantId,
+        },
+        ipAddress,
+      });
+
+      // Recalculate bills for this room and month
+      try {
+        await this.billingService.generateMonthlyBills(
+          {
+            yearBS,
+            monthBS,
+            roomId: dto.roomId,
+          },
+          adminId,
+          ipAddress,
+        );
+      } catch (e) {
+        console.error('[CustomPurchasesService.addPurchase generateMonthlyBills error]:', e);
+      }
+
+      return purchase;
+    });
   }
 
   async getPurchases(roomId?: string, yearBS?: number, monthBS?: number, tenantId?: string) {

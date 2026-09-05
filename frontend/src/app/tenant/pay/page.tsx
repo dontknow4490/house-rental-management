@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { api, getFileUrl } from '@/lib/api';
 import { formatCurrencyNPR, getTodayBS } from '@/lib/nepali-date';
+import { generateIdempotencyKey } from '@/lib/idempotency';
 import { useToast } from '@/lib/toast-context';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -19,6 +20,8 @@ export default function TenantPayPage() {
   const [transactionId, setTransactionId] = useState('');
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
+  const idempotencyKeyRef = useRef<string | null>(null);
   const [todayBS, setTodayBS] = useState<{ nepaliFullFormatted: string; nepaliFormatted: string } | null>(null);
   const [isAdvanceMode, setIsAdvanceMode] = useState(false);
 
@@ -45,8 +48,8 @@ export default function TenantPayPage() {
     };
     load();
 
-    // Auto-refresh every 5s for real-time payment/verification synchronization
-    const interval = setInterval(() => load(true), 5000);
+    // Auto-refresh every 15s or immediately on window focus/payment notification
+    const interval = setInterval(() => load(true), 15000);
     const onFocus = () => load(true);
     const onPaymentUpdated = () => load(true);
 
@@ -69,6 +72,8 @@ export default function TenantPayPage() {
 
   const handleSubmitPayment = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting || isSubmittingRef.current) return;
+
     if (!bill && !isAdvanceMode) {
       toast.error('No active bill or outstanding balance to pay.');
       return;
@@ -85,22 +90,31 @@ export default function TenantPayPage() {
       return;
     }
 
+    if (!idempotencyKeyRef.current) {
+      idempotencyKeyRef.current = generateIdempotencyKey();
+    }
+    const idempotencyKey = idempotencyKeyRef.current;
+
     try {
+      isSubmittingRef.current = true;
       setSubmitting(true);
       const formData = new FormData();
       formData.append('billId', bill?.id || '');
       formData.append('amount', String(payAmount));
       formData.append('paymentMethod', paymentMethod);
       formData.append('paymentDateBS', todayBS?.nepaliFormatted || '2083 Bhadra 1');
+      formData.append('idempotencyKey', idempotencyKey);
       if (transactionId) formData.append('transactionId', transactionId);
       formData.append('proofImage', proofFile);
 
       await api.post('/payments/submit', formData);
+      idempotencyKeyRef.current = null;
       toast.success('Payment submitted successfully! The administrator has been notified.');
       router.push('/tenant');
     } catch (err: any) {
       toast.error(err.message || 'Payment submission failed');
     } finally {
+      isSubmittingRef.current = false;
       setSubmitting(false);
     }
   };

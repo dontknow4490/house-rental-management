@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { api } from '@/lib/api';
 import { formatCurrencyNPR, getTodayBS, NEPALI_MONTH_NAMES } from '@/lib/nepali-date';
+import { generateIdempotencyKey } from '@/lib/idempotency';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { useToast } from '@/lib/toast-context';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -34,6 +35,10 @@ export default function AdminWaterPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
+  const isDeletingRef = useRef(false);
+  const idempotencyKeyRef = useRef<string | null>(null);
 
   const [form, setForm] = useState({
     roomId: '',
@@ -69,17 +74,27 @@ export default function AdminWaterPage() {
 
   const handleAddPurchase = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingRef.current) return;
     if (!form.roomId) {
       toast.warning('Please select a room');
       return;
     }
 
+    if (!idempotencyKeyRef.current) {
+      idempotencyKeyRef.current = generateIdempotencyKey();
+    }
+    const idempotencyKey = idempotencyKeyRef.current;
+
     try {
+      isSubmittingRef.current = true;
+      setSubmitting(true);
       await api.post('/water', {
         ...form,
         quantity: Number(form.quantity),
         pricePerUnit: Number(form.pricePerUnit),
+        idempotencyKey,
       });
+      idempotencyKeyRef.current = null;
       setModalOpen(false);
       const today = getTodayBS();
       setForm({
@@ -94,6 +109,9 @@ export default function AdminWaterPage() {
       toast.success('Water jar purchase recorded.');
     } catch (err: any) {
       toast.error(err.message || 'Failed to record water purchase');
+    } finally {
+      isSubmittingRef.current = false;
+      setSubmitting(false);
     }
   };
 
@@ -103,15 +121,21 @@ export default function AdminWaterPage() {
   };
 
   const handleConfirmDelete = async () => {
-    if (!deleteTargetId) return;
+    if (!deleteTargetId || isDeletingRef.current) return;
+    const targetId = deleteTargetId;
     try {
-      await api.delete(`/water/${deleteTargetId}`);
+      isDeletingRef.current = true;
+      // Optimistic instant removal (0ms)
+      setPurchases((prev) => prev.filter((p) => p.id !== targetId));
       setDeleteModalOpen(false);
       setDeleteTargetId(null);
-      loadData();
+      await api.delete(`/water/${targetId}`);
       toast.success('Water purchase record removed.');
     } catch (err: any) {
       toast.error(err.message || 'Failed to delete purchase');
+      loadData(); // rollback
+    } finally {
+      isDeletingRef.current = false;
     }
   };
 
@@ -455,8 +479,14 @@ export default function AdminWaterPage() {
               <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" variant="primary" className="font-bold">
-                Save Purchase
+              <Button
+                type="submit"
+                variant="primary"
+                className="font-bold"
+                disabled={submitting}
+                loading={submitting}
+              >
+                {submitting ? 'Saving...' : 'Save Purchase'}
               </Button>
             </div>
           </form>

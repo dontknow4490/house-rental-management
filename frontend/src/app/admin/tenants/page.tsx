@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { api } from '@/lib/api';
 import { formatCurrencyNPR, getTodayBS } from '@/lib/nepali-date';
+import { generateIdempotencyKey } from '@/lib/idempotency';
 import { NepaliDatePicker } from '@/components/NepaliDatePicker';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { useToast } from '@/lib/toast-context';
@@ -58,6 +59,7 @@ export default function AdminTenantsPage() {
   // Cash payment modal state
   const [cashModalOpen, setCashModalOpen] = useState(false);
   const [cashSubmitting, setCashSubmitting] = useState(false);
+  const cashIdempotencyKeyRef = useRef<string | null>(null);
   const [cashForm, setCashForm] = useState({
     tenantId: '',
     tenantName: '',
@@ -225,6 +227,11 @@ export default function AdminTenantsPage() {
       return;
     }
 
+    if (!cashIdempotencyKeyRef.current) {
+      cashIdempotencyKeyRef.current = generateIdempotencyKey();
+    }
+    const idempotencyKey = cashIdempotencyKeyRef.current;
+
     try {
       setCashSubmitting(true);
       const res = await api.post('/payments/cash-payment', {
@@ -233,7 +240,9 @@ export default function AdminTenantsPage() {
         amount: amt,
         paymentDateBS: cashForm.paymentDateBS,
         notes: cashForm.notes || undefined,
+        idempotencyKey,
       });
+      cashIdempotencyKeyRef.current = null;
       setCashModalOpen(false);
       loadData();
       toast.success(res?.message || 'Cash payment recorded and dues cleared.');

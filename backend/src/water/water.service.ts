@@ -4,6 +4,7 @@ import { NepaliCalendarService } from '../nepali-calendar/nepali-calendar.servic
 import { SettingsService } from '../settings/settings.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { BillingService } from '../billing/billing.service';
+import { executeWithIdempotency } from '../common/utils/async-lock.util';
 
 export interface AddWaterPurchaseDto {
   roomId: string;
@@ -13,6 +14,7 @@ export interface AddWaterPurchaseDto {
   pricePerUnit?: number;
   purchaseDateBS?: string;
   note?: string;
+  idempotencyKey?: string;
 }
 
 @Injectable()
@@ -46,51 +48,54 @@ export class WaterService {
     const monthBS = dto.monthBS !== undefined && dto.monthBS !== null ? Number(dto.monthBS) : todayBS.monthBS;
     const purchaseDateBS = dto.purchaseDateBS || todayBS.nepaliFormatted;
 
-    const purchase = await this.prisma.waterPurchase.create({
-      data: {
-        roomId: dto.roomId,
-        tenantId: activeTenant ? activeTenant.userId : null,
-        yearBS,
-        monthBS,
-        quantity: qty,
-        pricePerUnit: unitPrice,
-        totalAmount,
-        purchaseDateBS,
-        purchaseDateAD: new Date(),
-        isSettled: false,
-        note: dto.note?.trim() || null,
-      },
-    });
-
-    await this.auditLogService.log({
-      userId: adminId,
-      action: 'WATER_PURCHASE_ADDED',
-      details: {
-        purchaseId: purchase.id,
-        roomNumber: room.roomNumber,
-        quantity: qty,
-        unitPrice,
-        totalAmount,
-      },
-      ipAddress,
-    });
-
-    // Recalculate and update the MonthlyBill for this room and month (if unpaid bill exists)
-    try {
-      await this.billingService.generateMonthlyBills(
-        {
+    return await executeWithIdempotency('water_purchase', adminId, dto.idempotencyKey, async () => {
+      const purchase = await this.prisma.waterPurchase.create({
+        data: {
+          roomId: dto.roomId,
+          tenantId: activeTenant ? activeTenant.userId : null,
           yearBS,
           monthBS,
-          roomId: dto.roomId,
+          quantity: qty,
+          pricePerUnit: unitPrice,
+          totalAmount,
+          purchaseDateBS,
+          purchaseDateAD: new Date(),
+          isSettled: false,
+          note: dto.note?.trim() || null,
         },
-        adminId,
-        ipAddress,
-      );
-    } catch (e) {
-      console.error('[WaterService.addPurchase error]:', e);
-    }
+      });
 
-    return purchase;
+      await this.auditLogService.log({
+        userId: adminId,
+        action: 'WATER_PURCHASE_ADDED',
+        details: {
+          purchaseId: purchase.id,
+          roomNumber: room.roomNumber,
+          quantity: qty,
+          unitPrice,
+          totalAmount,
+          idempotencyKey: dto.idempotencyKey,
+        },
+        ipAddress,
+      });
+
+      // Recalculate and update the MonthlyBill for this room and month (if unpaid bill exists)
+      try {
+        await this.billingService.generateMonthlyBills(
+          {
+            yearBS,
+            monthBS,
+            roomId: dto.roomId,
+          },
+          adminId,
+          ipAddress,
+        );
+      } catch (e) {
+        console.error('[WaterService.addPurchase error]:', e);
+      }
+
+      return purchase;
+    });
   }
 
   async getPurchases(roomId?: string, yearBS?: number, monthBS?: number) {

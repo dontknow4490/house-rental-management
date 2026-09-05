@@ -21,7 +21,7 @@ export interface CreateMaintenanceDto {
 }
 
 export interface UpdateMaintenanceStatusDto {
-  status: MaintenanceStatus;
+  status: MaintenanceStatus | string;
   adminNotes?: string;
 }
 
@@ -148,10 +148,21 @@ export class MaintenanceService {
     });
     if (!req) throw new NotFoundException('Maintenance request not found');
 
+    // Normalize incoming status from frontend safely to PostgreSQL enum (NEW, IN_PROGRESS, COMPLETED)
+    const rawStatus = String(dto.status || '').toUpperCase();
+    let status: MaintenanceStatus = 'NEW';
+    if (rawStatus === 'IN_PROGRESS') {
+      status = 'IN_PROGRESS';
+    } else if (rawStatus === 'COMPLETED' || rawStatus === 'RESOLVED' || rawStatus === 'CANCELLED') {
+      status = 'COMPLETED';
+    } else {
+      status = 'NEW';
+    }
+
     const updated = await this.prisma.maintenanceRequest.update({
       where: { id },
       data: {
-        status: dto.status,
+        status,
         adminNotes: dto.adminNotes !== undefined ? dto.adminNotes?.trim() : req.adminNotes,
       },
     });
@@ -159,7 +170,7 @@ export class MaintenanceService {
     await this.auditLogService.log({
       userId: adminId,
       action: 'MAINTENANCE_STATUS_UPDATED',
-      details: { requestId: id, status: dto.status, notes: dto.adminNotes },
+      details: { requestId: id, status, notes: dto.adminNotes },
       ipAddress,
     });
 
@@ -168,9 +179,8 @@ export class MaintenanceService {
       NEW: 'New',
       IN_PROGRESS: 'In Progress',
       COMPLETED: 'Completed',
-      CANCELLED: 'Cancelled',
     };
-    const statusText = statusLabels[dto.status] || dto.status;
+    const statusText = statusLabels[status] || status;
 
     await this.notificationsService.notifyTenant(req.tenantId, {
       type: 'MAINTENANCE_UPDATE',

@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { AdjustmentType } from '@prisma/client';
+import { BillingService } from '../billing/billing.service';
 
 export interface CreateAdjustmentDto {
   tenantId: string;
@@ -18,6 +19,8 @@ export class AdjustmentsService {
   constructor(
     private prisma: PrismaService,
     private auditLogService: AuditLogService,
+    @Inject(forwardRef(() => BillingService))
+    private billingService: BillingService,
   ) {}
 
   async createAdjustment(dto: CreateAdjustmentDto, adminId: string, ipAddress?: string) {
@@ -45,6 +48,15 @@ export class AdjustmentsService {
       },
       ipAddress,
     });
+
+    // Automatically recalculate bill for this room & month so adjustments take effect immediately
+    try {
+      await this.billingService.generateMonthlyBills(
+        { yearBS: Number(dto.yearBS), monthBS: Number(dto.monthBS), roomId: dto.roomId },
+        adminId,
+        ipAddress,
+      );
+    } catch {}
 
     return adjustment;
   }
@@ -78,6 +90,15 @@ export class AdjustmentsService {
       ipAddress,
     });
 
-    return { message: 'Adjustment removed' };
+    // Automatically recalculate bill for this room & month after removing adjustment
+    try {
+      await this.billingService.generateMonthlyBills(
+        { yearBS: adj.yearBS, monthBS: adj.monthBS, roomId: adj.roomId },
+        adminId,
+        ipAddress,
+      );
+    } catch {}
+
+    return { message: 'Adjustment removed and bill recalculated.' };
   }
 }

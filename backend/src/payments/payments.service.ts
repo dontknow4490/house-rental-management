@@ -12,6 +12,7 @@ import { PaymentMethod } from '@prisma/client';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
 
 import { NotificationsService } from '../notifications/notifications.service';
+import { executeWithIdempotency } from '../common/utils/async-lock.util';
 
 export interface SubmitPaymentDto {
   billId: string;
@@ -21,6 +22,7 @@ export interface SubmitPaymentDto {
   proofImagePath?: string;
   paymentDateBS?: string;
   notes?: string;
+  idempotencyKey?: string;
 }
 
 export interface VerifyPaymentDto {
@@ -34,6 +36,7 @@ export interface RecordCashPaymentDto {
   amount: number;
   paymentDateBS?: string;
   notes?: string;
+  idempotencyKey?: string;
 }
 
 @Injectable()
@@ -84,69 +87,68 @@ export class PaymentsService {
     const todayBS = this.nepaliCalendarService.getCurrentNepaliDate();
     const paymentDateBS = dto.paymentDateBS || todayBS.nepaliFormatted;
 
-    const payment = await this.prisma.payment.create({
-      data: {
-        billId: bill.id,
-        tenantId,
-        amount: payAmount,
-        paymentMethod: dto.paymentMethod || 'ESEWA',
-        transactionId: dto.transactionId?.trim() || null,
-        proofImagePath: finalProofPath,
-        paymentDateBS,
-        paymentDateAD: new Date(),
-        status: 'PENDING_VERIFICATION',
-      },
-    });
-
-    // Update bill(s) status to PENDING_VERIFICATION
-    await this.prisma.monthlyBill.updateMany({
-      where: {
-        tenantId,
-        status: { in: ['UNPAID', 'PARTIALLY_PAID'] },
-      },
-      data: { status: 'PENDING_VERIFICATION' },
-    });
-
-    await this.auditLogService.log({
-      userId: tenantId,
-      username: bill.tenant.username,
-      action: 'PAYMENT_SUBMITTED',
-      details: {
-        paymentId: payment.id,
-        billId: bill.id,
-        amount: payAmount,
-        method: dto.paymentMethod,
-        transactionId: dto.transactionId,
-      },
-      ipAddress,
-    });
-
-    // Notify all active Admins immediately
-    const admins = await this.prisma.user.findMany({
-      where: { role: 'ADMIN', status: 'ACTIVE' },
-    });
-    const periodLabel = bill.billingPeriodBS || `${bill.yearBS} ${bill.monthNameBS}`;
-    for (const admin of admins) {
-      await this.notificationsService.createNotification({
-        userId: admin.id,
-        type: 'PAYMENT_SUBMITTED',
-        title: 'Payment Received',
-        message: `${bill.tenant.fullName} submitted payment of Rs. ${payAmount} for Room ${bill.room.roomNumber} (${periodLabel})`,
-        link: '/admin/payments',
+    return await executeWithIdempotency('payment_submit', tenantId, dto.idempotencyKey, async () => {
+      const payment = await this.prisma.payment.create({
         data: {
-          paymentId: payment.id,
+          billId: bill.id,
           tenantId,
           amount: payAmount,
-          roomNumber: bill.room.roomNumber,
-          billingPeriodBS: periodLabel,
+          paymentMethod: dto.paymentMethod || 'ESEWA',
+          transactionId: dto.transactionId?.trim() || null,
+          proofImagePath: finalProofPath,
+          paymentDateBS,
+          paymentDateAD: new Date(),
+          status: 'PENDING_VERIFICATION',
         },
       });
-    }
 
-    return {
-      message: 'Payment submitted successfully. Awaiting administrator verification.',
-      payment,
-    };
+      // Update ONLY this specific target bill to PENDING_VERIFICATION (do NOT corrupt other bills)
+      await this.prisma.monthlyBill.update({
+        where: { id: bill.id },
+        data: { status: 'PENDING_VERIFICATION' },
+      });
+
+      await this.auditLogService.log({
+        userId: tenantId,
+        username: bill.tenant.username,
+        action: 'PAYMENT_SUBMITTED',
+        details: {
+          paymentId: payment.id,
+          billId: bill.id,
+          amount: payAmount,
+          method: dto.paymentMethod,
+          transactionId: dto.transactionId,
+        },
+        ipAddress,
+      });
+
+      // Notify all active Admins immediately
+      const admins = await this.prisma.user.findMany({
+        where: { role: 'ADMIN', status: 'ACTIVE' },
+      });
+      const periodLabel = bill.billingPeriodBS || `${bill.yearBS} ${bill.monthNameBS}`;
+      for (const admin of admins) {
+        await this.notificationsService.createNotification({
+          userId: admin.id,
+          type: 'PAYMENT_SUBMITTED',
+          title: 'New Payment Submitted',
+          message: `${bill.tenant.fullName} submitted payment of Rs. ${payAmount} for ${periodLabel}.`,
+          link: '/admin/payments',
+          data: {
+            paymentId: payment.id,
+            billId: bill.id,
+            tenantId,
+            amount: payAmount,
+            period: periodLabel,
+          },
+        });
+      }
+
+      return {
+        message: 'Payment submitted successfully. Awaiting administrator verification.',
+        payment,
+      };
+    });
   }
 
   /**
@@ -171,7 +173,14 @@ export class PaymentsService {
     }
 
     if (payment.status === 'VERIFIED') {
-      throw new BadRequestException('Payment has already been verified');
+      const existingReceipt = await this.prisma.digitalReceipt.findUnique({
+        where: { paymentId },
+      });
+      return {
+        message: 'Payment has already been verified.',
+        payment,
+        receipt: existingReceipt,
+      };
     }
 
     const todayBS = this.nepaliCalendarService.getCurrentNepaliDate();
@@ -369,8 +378,12 @@ export class PaymentsService {
         tenantId,
         status: 'PENDING_VERIFICATION',
       },
+      select: {
+        id: true,
+        billId: true,
+      },
     });
-    const hasPending = pendingPayments.length > 0;
+    const pendingBillIds = new Set(pendingPayments.map((p) => p.billId).filter(Boolean));
 
     let verifiedPool = Number(
       verifiedPayments.reduce((acc, curr) => acc + Number(curr.amount), 0).toFixed(2),
@@ -378,6 +391,8 @@ export class PaymentsService {
 
     for (const b of allBills) {
       const total = Number(b.totalAmount.toFixed(2));
+      const isThisBillPending = pendingBillIds.has(b.id);
+
       if (verifiedPool >= total) {
         await this.prisma.monthlyBill.update({
           where: { id: b.id },
@@ -397,7 +412,7 @@ export class PaymentsService {
           data: {
             paidAmount: paid,
             balanceDue: due,
-            status: hasPending ? 'PENDING_VERIFICATION' : (due === 0 ? 'PAID' : 'PARTIALLY_PAID'),
+            status: isThisBillPending ? 'PENDING_VERIFICATION' : (due === 0 ? 'PAID' : 'PARTIALLY_PAID'),
           },
         });
         verifiedPool = 0;
@@ -407,7 +422,7 @@ export class PaymentsService {
           data: {
             paidAmount: 0,
             balanceDue: total,
-            status: hasPending ? 'PENDING_VERIFICATION' : 'UNPAID',
+            status: isThisBillPending ? 'PENDING_VERIFICATION' : 'UNPAID',
           },
         });
       }
@@ -573,6 +588,8 @@ export class PaymentsService {
     const todayBS = this.nepaliCalendarService.getCurrentNepaliDate();
     const paymentDateBS = dto.paymentDateBS || todayBS.nepaliFormatted;
 
+    return await executeWithIdempotency('cash_payment', adminId, dto.idempotencyKey, async () => {
+
     // 1. Generate collision-resistant digital receipt number
     const receiptCount = await this.prisma.digitalReceipt.count();
     let receiptNumber = `REC-${todayBS.yearBS}-${String(todayBS.monthBS).padStart(2, '0')}-${String(receiptCount + 1).padStart(4, '0')}`;
@@ -682,10 +699,11 @@ export class PaymentsService {
       },
     });
 
-    return {
-      message: `Cash payment of Rs. ${payAmount} recorded successfully and dues cleared.`,
-      payment,
-      receipt,
-    };
+      return {
+        message: `Cash payment of Rs. ${payAmount} recorded successfully and dues cleared.`,
+        payment,
+        receipt,
+      };
+    });
   }
 }

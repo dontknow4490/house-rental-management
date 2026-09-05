@@ -75,10 +75,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem('user_info', JSON.stringify(data));
       }
     } catch {
-      // If token expired or unauthorized
-      setUser(null);
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('user_info');
+      // Do not wipe credentials on transient network disconnects or Render cold starts
+      // api.ts already handles 401 Unauthorized strictly
+      const savedUser = localStorage.getItem('user_info');
+      if (savedUser) {
+        try {
+          setUser(JSON.parse(savedUser));
+        } catch {
+          // ignore parsing errors
+        }
+      }
     } finally {
       setLoading(false);
     }
