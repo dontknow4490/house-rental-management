@@ -50,7 +50,7 @@ Run the setup script:
 ```bash
 npm run setup
 ```
-This prompts you to set your initial administrator password (or uses default `Admin@Yubraj99`), pushes the Prisma schema to PostgreSQL, and seeds the 6 rooms and sample fake test accounts.
+- The initial administrator password must be securely configured during setup (e.g., via environment variable).
 
 ---
 

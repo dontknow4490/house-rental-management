@@ -173,7 +173,7 @@ async function runE2ETests() {
     );
 
     // 5. Test Admin Login
-    console.log('\n5. Testing Administrator Login (yubraj_99)...');
+    console.log('\n5. Testing Administrator Login (admin)...');
     const adminLogin = await request(
       `http://${lanIp}:4000/api/auth/login`,
       {
@@ -183,10 +183,7 @@ async function runE2ETests() {
           Origin: `http://${lanIp}:3000`,
         },
       },
-      {
-        username: 'yubraj_99',
-        password: 'Admin@Yubraj99',
-      },
+      { username: process.env.TEST_ADMIN_USERNAME, password: process.env.TEST_ADMIN_PASSWORD },
     );
     assert('Admin Login HTTP 200', adminLogin.status === 200 || adminLogin.status === 201, `(${adminLogin.durationMs}ms)`);
     assert('Admin Access Token received', !!adminLogin.data?.accessToken);
@@ -1171,10 +1168,10 @@ async function runE2ETests() {
     // 17b: Verify Payment Account Details
     const publicPaymentCheck = await request(`http://${lanIp}:4000/api/settings/public-payment`);
     assert('eSewa ID is 9761848471', publicPaymentCheck.data?.esewaId === '9761848471');
-    assert('eSewa Account Name is Yubraj Shrestha', publicPaymentCheck.data?.esewaAccountName === 'Yubraj Shrestha');
+    assert('eSewa Account Name matches env', publicPaymentCheck.data?.esewaAccountName === process.env.TEST_ACCOUNT_NAME);
+    assert('Bank Account Name matches env', publicPaymentCheck.data?.bankAccountName === process.env.TEST_ACCOUNT_NAME);
     assert('Bank Name is Nabil Bank', publicPaymentCheck.data?.bankName === 'Nabil Bank');
     assert('Bank Account Number is 15310017504670', publicPaymentCheck.data?.bankAccountNumber === '15310017504670');
-    assert('Bank Account Name is Yubraj Shrestha', publicPaymentCheck.data?.bankAccountName === 'Yubraj Shrestha');
     assert('Bank Branch is Imadol', publicPaymentCheck.data?.bankBranch === 'Imadol');
 
     // 17c: Verify Garbage Charge (Rs. 100) automatically included in monthly bills
@@ -1910,7 +1907,7 @@ async function runE2ETests() {
         },
       },
       {
-        houseName: 'Yubraj Residence Permanent Test',
+        houseName: process.env.TEST_HOUSE_NAME,
       },
     );
     const settingsAfterOtherUpdate = await request(`http://${lanIp}:4000/api/settings/public-payment`);

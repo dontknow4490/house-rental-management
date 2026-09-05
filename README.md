@@ -73,7 +73,7 @@ Open your mobile browser to `http://<LAPTOP-LAN-IP>:3000` (e.g. `http://192.168.
 
 ## Initial Accounts & Rooms
 
-- **Administrator**: `yubraj_99` (Default Password: `Admin@Yubraj99`)
+- **Administrator**: credentials are configured during deployment/setup and are not stored in this repository.
 - **Rooms**: 6 Rooms initialized (Room 1 to 6), all initially **VACANT** with zero fake mock tenants. Real tenants are added directly from **Admin -> Tenants -> Add Tenant**.
 - *Admin credentials can be updated anytime from **Admin -> Account / Security Settings**.*
 

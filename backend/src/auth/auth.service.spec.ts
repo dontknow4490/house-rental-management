@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+process.env.TEST_ADMIN_USERNAME = 'test_admin';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
@@ -17,12 +18,12 @@ describe('AuthService', () => {
     prismaService = {
       user: {
         findUnique: jest.fn().mockImplementation(({ where }) => {
-          if (where.username === 'yubraj_99' || where.id === 'user-admin') {
+          if (where.username === 'test_admin' || where.id === 'user-admin') {
             return Promise.resolve({
               id: 'user-admin',
-              username: 'yubraj_99',
+              username: process.env.TEST_ADMIN_USERNAME,
               passwordHash: hashedPassword,
-              fullName: 'Yubraj Admin',
+              fullName: 'Admin User',
               role: 'ADMIN',
               status: 'ACTIVE',
             });
@@ -54,13 +55,16 @@ describe('AuthService', () => {
   });
 
   it('should authenticate valid admin credentials and return JWT token', async () => {
+    const { execSync } = require('child_process');
+    process.env.TEST_ACCOUNT_NAME = 'Test Account';
+    process.env.TEST_HOUSE_NAME = 'Test House';
     const user = await service.validateUser({
-      username: 'yubraj_99',
+      username: process.env.TEST_ADMIN_USERNAME,
       password: 'Secret@123',
     });
 
     expect(user).toBeDefined();
-    expect(user.username).toBe('yubraj_99');
+    expect(user.username).toBe(process.env.TEST_ADMIN_USERNAME);
 
     const loginResult = await service.login(user);
     expect(loginResult.accessToken).toBe('mock_jwt_token_123');
@@ -70,7 +74,7 @@ describe('AuthService', () => {
   it('should reject invalid password with UnauthorizedException', async () => {
     await expect(
       service.validateUser({
-        username: 'yubraj_99',
+        username: process.env.TEST_ADMIN_USERNAME,
         password: 'WrongPassword',
       }),
     ).rejects.toThrow(UnauthorizedException);

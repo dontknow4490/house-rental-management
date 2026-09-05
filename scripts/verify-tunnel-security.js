@@ -116,7 +116,7 @@ async function run() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     },
-    { username: 'yubraj_99', password: 'Admin@Yubraj99' }
+    { username: process.env.TEST_ADMIN_USERNAME, password: process.env.TEST_ADMIN_PASSWORD }
   );
   assert('Admin Login via Public Tunnel returns HTTP 200/201', loginRes.status === 200 || loginRes.status === 201, `(${loginRes.durationMs}ms)`);
   const adminToken = loginRes.data?.accessToken;
@@ -149,8 +149,8 @@ async function run() {
     },
     {
       fullName: 'Tunnel Test Tenant',
-      username: testUsername,
-      password: 'Password@123',
+      username: process.env.TEST_ADMIN_USERNAME,
+      password: process.env.TEST_ADMIN_PASSWORD,
       phone: '9800000099',
       roomId: availableRoom.id,
       monthlyRent: 8000,

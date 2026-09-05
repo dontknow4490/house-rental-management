@@ -92,7 +92,7 @@ async function runVerification() {
         path: '/api/auth/login',
         method: 'POST',
       },
-      { username: 'yubraj_99', password: 'Admin@Yubraj99' }
+      { username: process.env.TEST_ADMIN_USERNAME, password: process.env.TEST_ADMIN_PASSWORD }
     );
     assert(loginRes.status === 201 || loginRes.status === 200, 'Admin login succeeded');
     const adminToken = loginRes.data.accessToken || loginRes.data.access_token;
