@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { formatCurrencyNPR } from '@/lib/nepali-date';
+import { useAutoSync } from '@/lib/sync';
 import { ReceiptModal, ReceiptData } from '@/components/ReceiptModal';
 
 export default function TenantReceiptsPage() {
@@ -14,7 +15,7 @@ export default function TenantReceiptsPage() {
     try {
       if (!isBackground) setLoading(true);
       const data = await api.get('/payments?status=VERIFIED');
-      const recs = data.map((p: any) => p.digitalReceipt).filter(Boolean);
+      const recs = Array.isArray(data) ? data.map((p: any) => p.digitalReceipt).filter(Boolean) : [];
       setReceipts(recs);
     } catch (err) {
       console.error(err);
@@ -25,20 +26,10 @@ export default function TenantReceiptsPage() {
 
   useEffect(() => {
     loadReceipts();
-
-    const interval = setInterval(() => loadReceipts(true), 6000);
-    const onFocus = () => loadReceipts(true);
-    const onPaymentUpdated = () => loadReceipts(true);
-
-    window.addEventListener('focus', onFocus);
-    window.addEventListener('payment_updated', onPaymentUpdated);
-
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('focus', onFocus);
-      window.removeEventListener('payment_updated', onPaymentUpdated);
-    };
   }, []);
+
+  // Real-time synchronization for receipts
+  useAutoSync(() => loadReceipts(true), ['payment', 'all']);
 
   return (
     <div className="space-y-5 text-xs">

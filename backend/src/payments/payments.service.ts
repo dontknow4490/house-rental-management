@@ -393,6 +393,19 @@ export class PaymentsService {
       const total = Number(b.totalAmount.toFixed(2));
       const isThisBillPending = pendingBillIds.has(b.id);
 
+      // Prioritize pending verification bills – they should remain pending and not consume verifiedPool.
+      if (isThisBillPending) {
+        await this.prisma.monthlyBill.update({
+          where: { id: b.id },
+          data: {
+            paidAmount: 0,
+            balanceDue: total,
+            status: 'PENDING_VERIFICATION',
+          },
+        });
+        continue;
+      }
+
       if (verifiedPool >= total) {
         await this.prisma.monthlyBill.update({
           where: { id: b.id },
@@ -412,7 +425,7 @@ export class PaymentsService {
           data: {
             paidAmount: paid,
             balanceDue: due,
-            status: isThisBillPending ? 'PENDING_VERIFICATION' : (due === 0 ? 'PAID' : 'PARTIALLY_PAID'),
+            status: due === 0 ? 'PAID' : 'PARTIALLY_PAID',
           },
         });
         verifiedPool = 0;
@@ -422,7 +435,7 @@ export class PaymentsService {
           data: {
             paidAmount: 0,
             balanceDue: total,
-            status: isThisBillPending ? 'PENDING_VERIFICATION' : 'UNPAID',
+            status: 'UNPAID',
           },
         });
       }

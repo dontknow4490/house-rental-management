@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { api, getFileUrl } from '@/lib/api';
 import { formatCurrencyNPR, getTodayBS } from '@/lib/nepali-date';
 import { generateIdempotencyKey } from '@/lib/idempotency';
+import { broadcastSync } from '@/lib/sync';
 import { useToast } from '@/lib/toast-context';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -109,6 +110,7 @@ export default function TenantPayPage() {
 
       await api.post('/payments/submit', formData);
       idempotencyKeyRef.current = null;
+      broadcastSync('payment');
       toast.success('Payment submitted successfully! The administrator has been notified.');
       router.push('/tenant');
     } catch (err: any) {

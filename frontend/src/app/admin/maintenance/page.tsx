@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, getFileUrl } from '@/lib/api';
 import { useToast } from '@/lib/toast-context';
+import { useAutoSync, broadcastSync } from '@/lib/sync';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
@@ -50,6 +51,9 @@ export default function AdminMaintenancePage() {
     loadRequests();
   }, []);
 
+  // Real-time synchronization for maintenance requests
+  useAutoSync(loadRequests, ['maintenance', 'all']);
+
   const handleUpdateStatus = async (id: string, newStatus: string) => {
     setUpdatingId(id);
     // Optimistic UI update: perceived 0ms latency
@@ -60,6 +64,7 @@ export default function AdminMaintenancePage() {
 
     try {
       await api.put(`/maintenance/${id}/status`, { status: newStatus });
+      broadcastSync('maintenance');
       const displayLabel = newStatus === 'NEW' ? 'New' : newStatus === 'IN_PROGRESS' ? 'In Progress' : 'Completed';
       toast.success(`Request status updated to ${displayLabel}.`);
     } catch (err: any) {
@@ -79,6 +84,7 @@ export default function AdminMaintenancePage() {
         status: selectedReq.status,
         adminNotes,
       });
+      broadcastSync('maintenance');
       // Optimistic update
       setRequests((prev) =>
         prev.map((r) => (r.id === selectedReq.id ? { ...r, adminNotes } : r))

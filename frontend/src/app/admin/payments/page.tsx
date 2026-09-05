@@ -6,6 +6,7 @@ import { formatCurrencyNPR } from '@/lib/nepali-date';
 import { ReceiptModal, ReceiptData } from '@/components/ReceiptModal';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { useToast } from '@/lib/toast-context';
+import { useAutoSync, broadcastSync } from '@/lib/sync';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
@@ -69,24 +70,10 @@ export default function AdminPaymentsPage() {
 
   useEffect(() => {
     loadPayments();
-
-    // Auto-refresh every 5 seconds for real-time payment synchronization
-    const interval = setInterval(() => {
-      loadPayments(true);
-    }, 5000);
-
-    const onFocus = () => loadPayments(true);
-    const onPaymentUpdated = () => loadPayments(true);
-
-    window.addEventListener('focus', onFocus);
-    window.addEventListener('payment_updated', onPaymentUpdated);
-
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('focus', onFocus);
-      window.removeEventListener('payment_updated', onPaymentUpdated);
-    };
   }, [filterStatus]);
+
+  // Real-time synchronization for payments
+  useAutoSync(() => loadPayments(true), ['payment', 'bill', 'all']);
 
   const handleOpenVerify = (payment: any) => {
     setSelectedPaymentForVerify(payment);
@@ -114,6 +101,7 @@ export default function AdminPaymentsPage() {
       const res = await api.put(`/payments/${targetId}/verify`, {
         verified: true,
       });
+      broadcastSync('payment');
       toast.success('Payment verified and official digital receipt issued.');
       setSelectedPaymentForVerify(null);
       loadPayments(true);
@@ -152,6 +140,7 @@ export default function AdminPaymentsPage() {
         verified: false,
         rejectionReason: rejectionReason || 'Payment proof is invalid',
       });
+      broadcastSync('payment');
       setSelectedPaymentForReject(null);
       setRejectionReason('');
       loadPayments(true);

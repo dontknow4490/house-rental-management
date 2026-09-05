@@ -742,5 +742,174 @@ describe('PaymentsService - Data Integrity & Audit Verification', () => {
       expect(prismaService.payment.create).toHaveBeenCalledTimes(1);
       expect(res2.payment.id).toBe(res1.payment.id);
     });
+
+    it('Test G: Cash payment for Room 3 strictly attaches to Room 3 and Room 3 tenant, never Room 1', async () => {
+      const room3Tenant = {
+        id: 'tenant-3',
+        fullName: 'Hari Prasad',
+        username: 'hari3',
+        tenantProfile: {
+          room: { roomNumber: 3 },
+        },
+      };
+
+      const room3Bill = {
+        id: 'bill-room-3',
+        tenantId: 'tenant-3',
+        roomId: 'room-3',
+        yearBS: 2083,
+        monthBS: 5,
+        totalAmount: 7500,
+        paidAmount: 0,
+        balanceDue: 7500,
+        status: 'UNPAID',
+        room: { roomNumber: 3 },
+      };
+
+      prismaService.user.findUnique.mockImplementation(({ where }) => {
+        if (where.id === 'tenant-3') return Promise.resolve(room3Tenant);
+        return Promise.resolve(null);
+      });
+
+      prismaService.monthlyBill.findUnique.mockImplementation(({ where }) => {
+        if (where.id === 'bill-room-3') return Promise.resolve(room3Bill);
+        return Promise.resolve(null);
+      });
+
+      prismaService.monthlyBill.findFirst.mockResolvedValue(room3Bill);
+      prismaService.monthlyBill.findMany.mockResolvedValue([room3Bill]);
+      prismaService.payment.findMany.mockResolvedValue([]);
+
+      let createdPaymentData: any = null;
+      prismaService.payment.create.mockImplementation(({ data }) => {
+        createdPaymentData = data;
+        return Promise.resolve({
+          id: 'pay-room-3-cash',
+          ...data,
+          digitalReceipt: { id: 'rec-r3', receiptNumber: 'REC-2083-05-0003' },
+        });
+      });
+
+      const res = await service.recordCashPayment(
+        {
+          tenantId: 'tenant-3',
+          billId: 'bill-room-3',
+          amount: 7500,
+          paymentDateBS: '2083-05-20',
+          idempotencyKey: 'cash-r3-unique-1',
+        },
+        'admin-1',
+      );
+
+      expect(createdPaymentData).not.toBeNull();
+      expect(createdPaymentData.tenantId).toBe('tenant-3');
+      expect(createdPaymentData.billId).toBe('bill-room-3');
+      expect(createdPaymentData.amount).toBe(7500);
+      expect(createdPaymentData.paymentMethod).toBe('CASH');
+      expect(createdPaymentData.status).toBe('VERIFIED');
+      expect(res.receipt.roomNumber).toBe(3);
+      expect(res.receipt.tenantName).toBe('Hari Prasad');
+    });
+
+    it('Test H: Reject cash payment when specified billId belongs to another tenant (Room 1 vs Room 3)', async () => {
+      const room3Tenant = {
+        id: 'tenant-3',
+        fullName: 'Hari Prasad',
+        tenantProfile: { room: { roomNumber: 3 } },
+      };
+
+      const room1Bill = {
+        id: 'bill-room-1',
+        tenantId: 'tenant-1', // Belongs to Tenant 1
+        roomId: 'room-1',
+        yearBS: 2083,
+        monthBS: 5,
+        totalAmount: 9000,
+        room: { roomNumber: 1 },
+      };
+
+      prismaService.user.findUnique.mockImplementation(({ where }) => {
+        if (where.id === 'tenant-3') return Promise.resolve(room3Tenant);
+        return Promise.resolve(null);
+      });
+
+      prismaService.monthlyBill.findUnique.mockImplementation(({ where }) => {
+        if (where.id === 'bill-room-1') return Promise.resolve(room1Bill);
+        return Promise.resolve(null);
+      });
+
+      await expect(
+        service.recordCashPayment(
+          {
+            tenantId: 'tenant-3',
+            billId: 'bill-room-1', // Attempting to attach Room 1 bill to Tenant 3
+            amount: 5000,
+            idempotencyKey: 'cash-mismatch-test',
+          },
+          'admin-1',
+        ),
+      ).rejects.toThrow('Selected bill does not belong to the selected tenant.');
+    });
+
+    it('Test I: Multi-room cash payments across all rooms (Rooms 1–6) update only the target room/tenant', async () => {
+      for (let r = 1; r <= 6; r++) {
+        const tId = `tenant-${r}`;
+        const bId = `bill-room-${r}`;
+        const roomTenant = {
+          id: tId,
+          fullName: `Tenant Room ${r}`,
+          tenantProfile: { room: { roomNumber: r } },
+        };
+        const bill = {
+          id: bId,
+          tenantId: tId,
+          roomId: `room-${r}`,
+          yearBS: 2083,
+          monthBS: 5,
+          totalAmount: 6000 + r * 500,
+          paidAmount: 0,
+          balanceDue: 6000 + r * 500,
+          status: 'UNPAID',
+          room: { roomNumber: r },
+        };
+
+        prismaService.user.findUnique.mockImplementation(({ where }) => {
+          if (where.id === tId) return Promise.resolve(roomTenant);
+          return Promise.resolve(null);
+        });
+
+        prismaService.monthlyBill.findUnique.mockImplementation(({ where }) => {
+          if (where.id === bId) return Promise.resolve(bill);
+          return Promise.resolve(null);
+        });
+
+        prismaService.monthlyBill.findFirst.mockResolvedValue(bill);
+        prismaService.monthlyBill.findMany.mockResolvedValue([bill]);
+
+        let createdPayment: any = null;
+        prismaService.payment.create.mockImplementation(({ data }) => {
+          createdPayment = data;
+          return Promise.resolve({
+            id: `pay-r${r}`,
+            ...data,
+            digitalReceipt: { id: `rec-r${r}`, receiptNumber: `REC-2083-05-000${r}` },
+          });
+        });
+
+        const res = await service.recordCashPayment(
+          {
+            tenantId: tId,
+            billId: bId,
+            amount: 6000 + r * 500,
+            idempotencyKey: `cash-all-rooms-${r}`,
+          },
+          'admin-1',
+        );
+
+        expect(createdPayment.tenantId).toBe(tId);
+        expect(createdPayment.billId).toBe(bId);
+        expect(res.receipt.roomNumber).toBe(r);
+      }
+    });
   });
 });

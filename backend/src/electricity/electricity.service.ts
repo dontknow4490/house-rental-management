@@ -8,6 +8,7 @@ import { NepaliCalendarService, NEPALI_MONTH_NAMES } from '../nepali-calendar/ne
 import { SettingsService } from '../settings/settings.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { BillingService } from '../billing/billing.service';
+import { executeWithIdempotency } from '../common/utils/async-lock.util';
 
 export interface EnterMeterReadingDto {
   roomId: string;
@@ -15,6 +16,7 @@ export interface EnterMeterReadingDto {
   monthBS: number; // 1 - 12
   currentReading: number;
   previousReading?: number; // Optional; auto-calculated from previous period if omitted
+  idempotencyKey?: string;
 }
 
 @Injectable()
@@ -33,7 +35,7 @@ export class ElectricityService {
   async getLastReadingForRoom(roomId: string, beforeYearBS?: number, beforeMonthBS?: number) {
     const where: any = { roomId };
     if (beforeYearBS && beforeMonthBS) {
-      // Find previous period
+      // Find previous period strictly for this room
       where.OR = [
         { yearBS: { lt: beforeYearBS } },
         { yearBS: beforeYearBS, monthBS: { lt: beforeMonthBS } },
@@ -61,6 +63,10 @@ export class ElectricityService {
       },
     });
 
+    if (!room) {
+      throw new NotFoundException('Room not found');
+    }
+
     const activeTenant = room.tenantProfiles[0] || null;
     const todayBS = this.nepaliCalendarService.getCurrentNepaliDate();
 
@@ -85,7 +91,7 @@ export class ElectricityService {
       }
     }
 
-    // Determine previous reading
+    // Determine previous reading for this specific room
     let prevReading = dto.previousReading;
     if (prevReading === undefined || prevReading === null) {
       prevReading = await this.getLastReadingForRoom(dto.roomId, dto.yearBS, dto.monthBS);
@@ -102,39 +108,40 @@ export class ElectricityService {
 
     const monthNameBS = NEPALI_MONTH_NAMES[dto.monthBS - 1] || 'Baisakh';
 
-    const reading = await this.prisma.electricityReading.upsert({
-      where: {
-        roomId_yearBS_monthBS: {
+    return await executeWithIdempotency('electricity_reading', adminId, dto.idempotencyKey, async () => {
+      const reading = await this.prisma.electricityReading.upsert({
+        where: {
+          roomId_yearBS_monthBS: {
+            roomId: dto.roomId,
+            yearBS: dto.yearBS,
+            monthBS: dto.monthBS,
+          },
+        },
+        update: {
+          tenantId: activeTenant ? activeTenant.userId : null,
+          previousReading: prevReading,
+          currentReading: dto.currentReading,
+          unitsUsed,
+          unitRate,
+          totalCharge,
+          readingDateAD: new Date(),
+          readingDateBS: todayBS.nepaliFormatted,
+        },
+        create: {
           roomId: dto.roomId,
+          tenantId: activeTenant ? activeTenant.userId : null,
           yearBS: dto.yearBS,
           monthBS: dto.monthBS,
+          monthNameBS,
+          previousReading: prevReading,
+          currentReading: dto.currentReading,
+          unitsUsed,
+          unitRate,
+          totalCharge,
+          readingDateAD: new Date(),
+          readingDateBS: todayBS.nepaliFormatted,
         },
-      },
-      update: {
-        tenantId: activeTenant ? activeTenant.userId : null,
-        previousReading: prevReading,
-        currentReading: dto.currentReading,
-        unitsUsed,
-        unitRate,
-        totalCharge,
-        readingDateAD: new Date(),
-        readingDateBS: todayBS.nepaliFormatted,
-      },
-      create: {
-        roomId: dto.roomId,
-        tenantId: activeTenant ? activeTenant.userId : null,
-        yearBS: dto.yearBS,
-        monthBS: dto.monthBS,
-        monthNameBS,
-        previousReading: prevReading,
-        currentReading: dto.currentReading,
-        unitsUsed,
-        unitRate,
-        totalCharge,
-        readingDateAD: new Date(),
-        readingDateBS: todayBS.nepaliFormatted,
-      },
-    });
+      });
 
     // 1. Immediately update / recalculate the monthly bill for this period and room
     try {
@@ -193,23 +200,24 @@ export class ElectricityService {
       console.error('Failed to cascade electricity reading update:', err);
     }
 
-    await this.auditLogService.log({
-      userId: adminId,
-      action: 'ELECTRICITY_READING_ENTERED',
-      details: {
-        roomId: dto.roomId,
-        roomNumber: room.roomNumber,
-        yearBS: dto.yearBS,
-        monthBS: dto.monthBS,
-        previousReading: prevReading,
-        currentReading: dto.currentReading,
-        unitsUsed,
-        totalCharge,
-      },
-      ipAddress,
-    });
+      await this.auditLogService.log({
+        userId: adminId,
+        action: 'ELECTRICITY_READING_ENTERED',
+        details: {
+          roomId: dto.roomId,
+          roomNumber: room.roomNumber,
+          yearBS: dto.yearBS,
+          monthBS: dto.monthBS,
+          previousReading: prevReading,
+          currentReading: dto.currentReading,
+          unitsUsed,
+          totalCharge,
+        },
+        ipAddress,
+      });
 
-    return reading;
+      return reading;
+    });
   }
 
   /**
@@ -250,6 +258,9 @@ export class ElectricityService {
           }
         }
 
+        const totalCost = currentReading ? currentReading.totalCharge : 0;
+        const isLogged = !!currentReading;
+
         return {
           roomId: room.id,
           roomNumber: room.roomNumber,
@@ -262,9 +273,12 @@ export class ElectricityService {
           previousReading: currentReading ? currentReading.previousReading : prevReadingValue,
           currentReading: currentReading ? currentReading.currentReading : null,
           unitsConsumed: currentReading ? currentReading.unitsUsed : 0,
+          unitsUsed: currentReading ? currentReading.unitsUsed : 0,
           unitRate,
-          totalAmount: currentReading ? currentReading.totalCharge : 0,
-          isLogged: !!currentReading,
+          totalAmount: totalCost,
+          totalCost,
+          isLogged,
+          isUpdated: isLogged,
           readingDateBS: currentReading?.readingDateBS || null,
         };
       }),
@@ -289,6 +303,7 @@ export class ElectricityService {
       totalUnitsConsumed,
       totalElectricityCharge,
       totalElectricityAmount: totalElectricityCharge,
+      totalCost: totalElectricityCharge,
       rooms: roomStatusList,
     };
   }

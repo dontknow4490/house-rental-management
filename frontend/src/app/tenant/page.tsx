@@ -27,6 +27,7 @@ import {
   Copy,
 } from 'lucide-react';
 import { useToast } from '@/lib/toast-context';
+import { useAutoSync } from '@/lib/sync';
 
 export default function TenantDashboardPage() {
   const { user } = useAuth();
@@ -66,30 +67,10 @@ export default function TenantDashboardPage() {
 
   useEffect(() => {
     loadTenantData();
-
-    // Event-driven auto-synchronization: instant reload when payment is verified or proof submitted
-    const onPaymentUpdated = () => {
-      loadTenantData(true);
-    };
-
-    const onFocus = () => {
-      loadTenantData(true);
-    };
-
-    window.addEventListener('payment_updated', onPaymentUpdated);
-    window.addEventListener('focus', onFocus);
-
-    // Background interval every 20s as safe fallback
-    const interval = setInterval(() => {
-      loadTenantData(true);
-    }, 20000);
-
-    return () => {
-      window.removeEventListener('payment_updated', onPaymentUpdated);
-      window.removeEventListener('focus', onFocus);
-      clearInterval(interval);
-    };
   }, [loadTenantData]);
+
+  // Real-time synchronization whenever admin verifies payment, logs electricity, water, or updates maintenance
+  useAutoSync(() => loadTenantData(true), ['payment', 'bill', 'electricity', 'water', 'custom_purchase', 'maintenance', 'notice', 'all']);
 
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text);

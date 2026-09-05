@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { StatCard } from '@/components/ui/StatCard';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { SkeletonCard, SkeletonTable } from '@/components/ui/LoadingSkeleton';
+import { useAutoSync } from '@/lib/sync';
 import {
   Zap,
   CheckCircle2,
@@ -61,6 +62,9 @@ export default function AdminElectricityPage() {
   useEffect(() => {
     loadStatus();
   }, [selectedYearBS, selectedMonthBS]);
+
+  // Automatically refresh when electricity, bills, or payments update
+  useAutoSync(loadStatus, ['electricity', 'bill', 'payment', 'all']);
 
   return (
     <div className="space-y-6">
@@ -126,7 +130,7 @@ export default function AdminElectricityPage() {
         <StatCard
           variant="success"
           title="Total Electricity Bill"
-          value={formatCurrencyNPR(data?.totalCost || 0)}
+          value={formatCurrencyNPR(data?.totalElectricityAmount ?? data?.totalCost ?? 0)}
           badge={`Rs. ${data?.unitRate || 15}/unit`}
           icon={<TrendingUp className="w-5 h-5" />}
           subtitle="Will auto-attach to bills"
@@ -160,7 +164,8 @@ export default function AdminElectricityPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {(data?.rooms || []).map((room: any) => {
-              const isUpdated = room.isUpdated;
+              const isUpdated = !!(room.isUpdated || room.isLogged);
+              const roomCost = room.totalCost ?? room.totalAmount ?? 0;
 
               return (
                 <div
@@ -248,7 +253,7 @@ export default function AdminElectricityPage() {
                             Calculated Cost
                           </span>
                           <span className="font-mono font-extrabold text-amber-900 text-sm">
-                            {formatCurrencyNPR(room.totalCost || 0)}
+                            {formatCurrencyNPR(roomCost)}
                           </span>
                         </div>
                       </div>

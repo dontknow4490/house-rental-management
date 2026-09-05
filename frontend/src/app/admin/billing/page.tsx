@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { api } from '@/lib/api';
 import { formatCurrencyNPR, getTodayBS, NEPALI_MONTH_NAMES } from '@/lib/nepali-date';
 import { generateIdempotencyKey } from '@/lib/idempotency';
+import { useAutoSync, broadcastSync } from '@/lib/sync';
 import { NepaliDatePicker } from '@/components/NepaliDatePicker';
 import { useToast } from '@/lib/toast-context';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -17,7 +18,6 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import {
   Receipt,
   PlusCircle,
-  FileSpreadsheet,
   Banknote,
   SlidersHorizontal,
   Edit2,
@@ -43,7 +43,6 @@ export default function AdminBillingPage() {
   const [unpaidCount, setUnpaidCount] = useState<number>(0);
   const [rooms, setRooms] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(false);
 
   const [selectedYearBS, setSelectedYearBS] = useState(2083);
   const [selectedMonthBS, setSelectedMonthBS] = useState(5);
@@ -78,6 +77,7 @@ export default function AdminBillingPage() {
 
   // Correction Modal
   const [correctModalOpen, setCorrectModalOpen] = useState(false);
+  const [correctSubmitting, setCorrectSubmitting] = useState(false);
   const [correctingBill, setCorrectingBill] = useState<any>(null);
   const [correctForm, setCorrectForm] = useState({
     rentAmount: '',
@@ -129,23 +129,8 @@ export default function AdminBillingPage() {
     loadBills();
   }, [viewMode, selectedYearBS, selectedMonthBS]);
 
-  const handleGenerate = async () => {
-    try {
-      setGenerating(true);
-      await api.post('/billing/generate', {
-        yearBS: selectedYearBS,
-        monthBS: selectedMonthBS,
-      });
-      loadBills();
-      toast.success(
-        `Monthly bills generated for ${NEPALI_MONTH_NAMES[selectedMonthBS - 1]} ${selectedYearBS}.`
-      );
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to generate bills');
-    } finally {
-      setGenerating(false);
-    }
-  };
+  // Real-time synchronization when payments, bills, water, or electricity update
+  useAutoSync(loadBills, ['bill', 'payment', 'electricity', 'water', 'custom_purchase', 'all']);
 
   const handleOpenBreakdown = async (billId: string) => {
     try {
@@ -181,7 +166,7 @@ export default function AdminBillingPage() {
       waterAmount: String(bill.waterAmount ?? 0),
       adjustmentsAmount: String(bill.adjustmentsAmount ?? 0),
       customPurchasesAmount: String(bill.customPurchasesAmount ?? 0),
-      correctionReason: bill.correctionReason || '',
+      correctionReason: '',
     });
     setCorrectModalOpen(true);
   };
@@ -189,76 +174,103 @@ export default function AdminBillingPage() {
   const handleSaveCorrection = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!correctingBill) return;
-    if (!correctForm.correctionReason.trim()) {
-      toast.warning('Please enter a reason for this bill correction.');
+    if (!correctForm.correctionReason || !correctForm.correctionReason.trim()) {
+      toast.warning('Please enter an audit reason for the correction.');
       return;
     }
 
     try {
+      setCorrectSubmitting(true);
       await api.put(`/billing/${correctingBill.id}/correct`, {
-        rentAmount: Number(correctForm.rentAmount),
-        electricityAmount: Number(correctForm.electricityAmount),
-        internetAmount: Number(correctForm.internetAmount),
-        garbageAmount: Number(correctForm.garbageAmount),
-        waterAmount: Number(correctForm.waterAmount),
-        adjustmentsAmount: Number(correctForm.adjustmentsAmount),
+        rentAmount: Number(correctForm.rentAmount) || 0,
+        electricityAmount: Number(correctForm.electricityAmount) || 0,
+        internetAmount: Number(correctForm.internetAmount) || 0,
+        waterAmount: Number(correctForm.waterAmount) || 0,
+        garbageAmount: Number(correctForm.garbageAmount) || 0,
+        adjustmentsAmount: Number(correctForm.adjustmentsAmount) || 0,
         customPurchasesAmount: Number(correctForm.customPurchasesAmount || 0),
-        correctionReason: correctForm.correctionReason.trim(),
+        reason: correctForm.correctionReason.trim(),
       });
+      broadcastSync('bill');
+      toast.success('Bill breakdown corrected successfully.');
       setCorrectModalOpen(false);
-      setCorrectingBill(null);
       loadBills();
-      toast.success('Bill updated and recalculated successfully.');
     } catch (err: any) {
       toast.error(err.message || 'Failed to correct bill');
+    } finally {
+      setCorrectSubmitting(false);
     }
   };
 
   const handleOpenCashPayment = (target?: any) => {
     const today = getTodayBS();
-    if (target?.tenantId || target?.tenant?.id) {
-      const tId = target.tenantId || target.tenant?.id;
-      const tName = target.tenant?.fullName || target.tenantName || 'Tenant';
-      const rId = target.roomId || target.room?.id || '';
-      const rNum = String(target.room?.roomNumber || target.roomNumber || '');
-      const bId = target.id && target.totalAmount !== undefined ? target.id : '';
-      const due = Number(
-        target.balanceDue ?? target.due ?? target.totalDue ?? target.totalAmount ?? 0
-      );
 
-      const matchedRoom = rooms.find((rm) => rm.id === rId);
-      const isMovedOut = !matchedRoom || matchedRoom.tenant?.id !== tId;
+    // 1. Resolve room & tenant from target payload accurately
+    let tId = target?.tenantId || target?.tenant?.id || (target as any)?.tenantProfiles?.[0]?.userId || '';
+    let tName = target?.tenant?.fullName || (target as any)?.tenantProfiles?.[0]?.user?.fullName || target?.tenantName || '';
+    let rId = target?.roomId || target?.room?.id || target?.id || '';
+    let rNum = String(target?.room?.roomNumber || target?.roomNumber || '');
+    let bId = target?.id && target?.totalAmount !== undefined ? target.id : (target?.bills?.[0]?.id || '');
+    let due = Number(
+      target?.balanceDue ?? target?.due ?? target?.totalDue ?? target?.totalAmount ?? 0
+    );
 
-      setCashForm({
-        roomId: isMovedOut ? 'MOVED_OUT' : rId || '',
-        tenantId: tId,
-        tenantName: tName,
-        roomNumber: rNum,
-        billId: bId,
-        amount: due > 0 ? String(due) : '',
-        maxDue: due,
-        paymentDateBS: today.nepaliFormatted,
-        notes: 'Direct Cash Payment received by Admin',
-      });
-    } else {
-      const occupiedWithDue = rooms.find((r) => r.status === 'OCCUPIED' && r.tenant);
-      const tId = occupiedWithDue?.tenant?.id || '';
-      const tBills = tId ? bills.filter((b) => b.tenantId === tId) : [];
-      const totalDue = tBills.reduce((sum, b) => sum + (b.balanceDue || 0), 0);
-      const unpaidB = tBills.filter((b) => b.balanceDue > 0);
-
-      setCashForm({
-        roomId: occupiedWithDue?.id || '',
-        tenantId: tId,
-        tenantName: occupiedWithDue?.tenant?.fullName || '',
-        roomNumber: String(occupiedWithDue?.roomNumber || ''),
-        billId: unpaidB[0]?.id || '',
-        amount: totalDue > 0 ? String(totalDue) : '',
-        maxDue: totalDue,
-        paymentDateBS: today.nepaliFormatted,
-        notes: 'Direct Cash Payment received by Admin',
-      });
+    // If target is a room summary with bills attached, pick the unpaid bill
+    if (target?.bills && target.bills.length > 0) {
+      const unpaidB = target.bills.filter((b: any) => (b.balanceDue || 0) > 0);
+      const chosenBill = unpaidB[0] || target.bills[0];
+      if (chosenBill) {
+        bId = chosenBill.id;
+        tId = chosenBill.tenantId || tId;
+        tName = chosenBill.tenant?.fullName || tName;
+        rId = chosenBill.roomId || rId;
+        rNum = String(chosenBill.roomNumber || chosenBill.room?.roomNumber || rNum);
+      }
     }
+
+    // If tenant is still missing, lookup room in state
+    if (!tId && rNum) {
+      const matched = rooms.find((r) => String(r.roomNumber) === rNum);
+      if (matched) {
+        rId = matched.id;
+        const tenantProf = (matched as any).tenantProfiles?.[0];
+        if (tenantProf) {
+          tId = tenantProf.userId || tenantProf.user?.id || '';
+          tName = tenantProf.user?.fullName || tName;
+        }
+      }
+    }
+
+    // If no target provided at all (from header), select the first room with outstanding dues
+    if (!tId) {
+      const occupiedWithDue = rooms.find((r) => {
+        const tProf = (r as any).tenantProfiles?.[0];
+        return r.status === 'OCCUPIED' && tProf;
+      });
+      if (occupiedWithDue) {
+        const tProf = (occupiedWithDue as any).tenantProfiles[0];
+        rId = occupiedWithDue.id;
+        rNum = String(occupiedWithDue.roomNumber);
+        tId = tProf.userId || tProf.user?.id || '';
+        tName = tProf.user?.fullName || '';
+      }
+    }
+
+    const tBills = tId ? bills.filter((b) => b.tenantId === tId) : [];
+    const totalDue = tBills.reduce((sum, b) => sum + (b.balanceDue || 0), 0);
+    const targetDue = due > 0 ? due : totalDue;
+
+    setCashForm({
+      roomId: rId,
+      tenantId: tId,
+      tenantName: tName || 'Tenant',
+      roomNumber: rNum,
+      billId: bId || (tBills.find((b) => (b.balanceDue || 0) > 0)?.id || ''),
+      amount: targetDue > 0 ? String(targetDue) : '',
+      maxDue: targetDue,
+      paymentDateBS: today.nepaliFormatted,
+      notes: 'Direct Cash Payment received by Admin',
+    });
     setCashModalOpen(true);
   };
 
@@ -290,6 +302,7 @@ export default function AdminBillingPage() {
         idempotencyKey,
       });
       cashIdempotencyKeyRef.current = null;
+      broadcastSync('payment');
       toast.success(res?.message || 'Cash payment recorded and dues cleared successfully.');
       setCashModalOpen(false);
       loadBills();
@@ -314,6 +327,7 @@ export default function AdminBillingPage() {
         monthBS: selectedMonthBS,
         amount: Number(adjForm.amount),
       });
+      broadcastSync('bill');
       setAdjModalOpen(false);
       setAdjForm({ tenantId: '', roomId: '', type: 'DISCOUNT', amount: '', reason: '' });
       loadBills();
@@ -352,14 +366,27 @@ export default function AdminBillingPage() {
     const roomTotalBilled = roomBills.reduce((sum, b) => sum + (b.totalAmount || 0), 0);
     const roomPaid = roomBills.reduce((sum, b) => sum + (b.paidAmount || 0), 0);
     const roomDue = roomBills.reduce((sum, b) => sum + (b.balanceDue || 0), 0);
-    const activeTenant = roomObj.tenant || (roomObj as any).tenantProfiles?.[0]?.user || roomBills[0]?.tenant || null;
+    const activeTenant =
+      roomObj.tenant ||
+      (roomObj as any).tenantProfiles?.[0]?.user ||
+      roomBills[0]?.tenant ||
+      null;
+    const tenantId =
+      activeTenant?.id ||
+      (roomObj as any).tenantProfiles?.[0]?.userId ||
+      roomBills[0]?.tenantId ||
+      '';
     const tenantName =
       activeTenant?.fullName || (roomBills.length > 0 ? roomBills[0]?.tenant?.fullName : null);
 
     return {
+      id: roomObj.id || roomBills[0]?.roomId || '',
+      roomId: roomObj.id || roomBills[0]?.roomId || '',
       roomNumber: roomNum,
       roomName: roomObj.name || `Room ${roomNum}`,
       status: roomObj.status || (roomBills.length > 0 ? 'OCCUPIED' : 'VACANT'),
+      tenantId,
+      tenant: activeTenant,
       tenantName,
       billsCount: roomBills.length,
       totalBilled: roomTotalBilled,
@@ -392,26 +419,14 @@ export default function AdminBillingPage() {
               <span>Record Cash Payment</span>
             </Button>
             {viewMode === 'monthly' && (
-              <>
-                <Button
-                  onClick={() => setAdjModalOpen(true)}
-                  variant="outline"
-                  size="sm"
-                >
-                  <Tag className="w-4 h-4" />
-                  <span>+ Adjustment</span>
-                </Button>
-                <Button
-                  onClick={handleGenerate}
-                  loading={generating}
-                  variant="primary"
-                  size="sm"
-                  className="font-bold"
-                >
-                  <FileSpreadsheet className="w-4 h-4" />
-                  <span>{generating ? 'Generating...' : 'Generate Monthly Bills'}</span>
-                </Button>
-              </>
+              <Button
+                onClick={() => setAdjModalOpen(true)}
+                variant="outline"
+                size="sm"
+              >
+                <Tag className="w-4 h-4" />
+                <span>+ Adjustment</span>
+              </Button>
             )}
           </div>
         }
@@ -676,15 +691,7 @@ export default function AdminBillingPage() {
               description={
                 viewMode === 'unpaid'
                   ? 'All room bills are completely paid up!'
-                  : `No bills have been generated yet for ${NEPALI_MONTH_NAMES[selectedMonthBS - 1]} ${selectedYearBS}.`
-              }
-              action={
-                viewMode === 'monthly' ? (
-                  <Button onClick={handleGenerate} variant="primary" size="sm">
-                    <FileSpreadsheet className="w-4 h-4" />
-                    <span>Generate Bills Now</span>
-                  </Button>
-                ) : undefined
+                  : `No recorded bills found for ${NEPALI_MONTH_NAMES[selectedMonthBS - 1]} ${selectedYearBS}. Bills are calculated automatically upon recording room activities.`
               }
             />
           </div>
@@ -1241,8 +1248,8 @@ export default function AdminBillingPage() {
               >
                 Cancel
               </Button>
-              <Button type="submit" variant="primary" className="font-bold">
-                Save & Recalculate Bill
+              <Button type="submit" variant="primary" className="font-bold" disabled={correctSubmitting}>
+                {correctSubmitting ? 'Saving...' : 'Save & Recalculate Bill'}
               </Button>
             </div>
           </form>

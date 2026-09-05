@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { api } from '@/lib/api';
 import { formatCurrencyNPR, getTodayBS, NEPALI_MONTH_NAMES } from '@/lib/nepali-date';
+import { generateIdempotencyKey } from '@/lib/idempotency';
+import { broadcastSync } from '@/lib/sync';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Zap, AlertTriangle, CheckCircle2, ArrowRight } from 'lucide-react';
@@ -37,14 +39,21 @@ export const ReadingEntryModal: React.FC<ReadingEntryModalProps> = ({
   room,
   period,
 }) => {
-  const [currentReading, setCurrentReading] = useState<string>(
-    room?.currentReading ? String(room.currentReading) : ''
-  );
-  const [previousReading, setPreviousReading] = useState<string>(
-    room ? String(room.previousReading) : '0'
-  );
+  const [currentReading, setCurrentReading] = useState<string>('');
+  const [previousReading, setPreviousReading] = useState<string>('0');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const idempotencyKeyRef = useRef<string | null>(null);
+
+  // Sync state whenever room changes or modal opens to prevent cross-room state leakage
+  useEffect(() => {
+    if (isOpen && room) {
+      setCurrentReading(room.currentReading !== null && room.currentReading !== undefined ? String(room.currentReading) : '');
+      setPreviousReading(room.previousReading !== undefined && room.previousReading !== null ? String(room.previousReading) : '0');
+      setError(null);
+      idempotencyKeyRef.current = null;
+    }
+  }, [isOpen, room]);
 
   if (!isOpen || !room) return null;
 
@@ -80,6 +89,11 @@ export const ReadingEntryModal: React.FC<ReadingEntryModalProps> = ({
       return;
     }
 
+    if (!idempotencyKeyRef.current) {
+      idempotencyKeyRef.current = generateIdempotencyKey();
+    }
+    const idempotencyKey = idempotencyKeyRef.current;
+
     setLoading(true);
     setError(null);
     try {
@@ -89,7 +103,10 @@ export const ReadingEntryModal: React.FC<ReadingEntryModalProps> = ({
         monthBS: period.monthBS,
         currentReading: currNum,
         previousReading: prevNum,
+        idempotencyKey,
       });
+      idempotencyKeyRef.current = null;
+      broadcastSync('electricity');
       onSuccess();
       onClose();
     } catch (err: any) {

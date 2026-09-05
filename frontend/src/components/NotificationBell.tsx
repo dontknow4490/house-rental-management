@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { api } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import { formatCurrencyNPR } from '@/lib/nepali-date';
+import { broadcastSync } from '@/lib/sync';
 
 export function NotificationBell({ role }: { role: 'ADMIN' | 'TENANT' }) {
   const router = useRouter();
@@ -54,9 +55,7 @@ export function NotificationBell({ role }: { role: 'ADMIN' | 'TENANT' }) {
         // If new unread notification arrived after initial load, play sound and broadcast update
         if (!isInitialLoadRef.current && newUnread > previousUnreadRef.current) {
           playChime();
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('payment_updated'));
-          }
+          broadcastSync('all');
         }
 
         previousUnreadRef.current = newUnread;

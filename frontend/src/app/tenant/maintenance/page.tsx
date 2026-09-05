@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { api, getFileUrl } from '@/lib/api';
 import { useToast } from '@/lib/toast-context';
+import { generateIdempotencyKey } from '@/lib/idempotency';
+import { useAutoSync, broadcastSync } from '@/lib/sync';
 
 const CATEGORIES = [
   'Electrical',
@@ -18,6 +20,7 @@ export default function TenantMaintenancePage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+  const idempotencyKeyRef = useRef<string | null>(null);
 
   const [form, setForm] = useState({
     title: '',
@@ -30,7 +33,7 @@ export default function TenantMaintenancePage() {
     try {
       setLoading(true);
       const data = await api.get('/maintenance');
-      setRequests(data);
+      setRequests(Array.isArray(data) ? data : []);
     } catch (err: any) {
       toast.error(err.message || 'Failed to load maintenance requests');
     } finally {
@@ -42,6 +45,9 @@ export default function TenantMaintenancePage() {
     loadRequests();
   }, []);
 
+  // Real-time synchronization for tenant maintenance view
+  useAutoSync(loadRequests, ['maintenance', 'all']);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.title.trim() || !form.description.trim()) {
@@ -49,17 +55,25 @@ export default function TenantMaintenancePage() {
       return;
     }
 
+    if (!idempotencyKeyRef.current) {
+      idempotencyKeyRef.current = generateIdempotencyKey();
+    }
+    const idempotencyKey = idempotencyKeyRef.current;
+
     try {
       setSubmitting(true);
       const formData = new FormData();
       formData.append('title', form.title.trim());
       formData.append('category', form.category);
       formData.append('description', form.description.trim());
+      formData.append('idempotencyKey', idempotencyKey);
       if (photoFile) {
         formData.append('photo', photoFile);
       }
 
       await api.post('/maintenance', formData);
+      idempotencyKeyRef.current = null;
+      broadcastSync('maintenance');
       setModalOpen(false);
       setForm({ title: '', category: 'Electrical', description: '' });
       setPhotoFile(null);

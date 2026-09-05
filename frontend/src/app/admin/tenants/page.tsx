@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { api } from '@/lib/api';
 import { formatCurrencyNPR, getTodayBS } from '@/lib/nepali-date';
 import { generateIdempotencyKey } from '@/lib/idempotency';
+import { useAutoSync, broadcastSync } from '@/lib/sync';
 import { NepaliDatePicker } from '@/components/NepaliDatePicker';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { useToast } from '@/lib/toast-context';
@@ -185,6 +186,7 @@ export default function AdminTenantsPage() {
     try {
       setActionLoading(true);
       const res = await api.delete(`/tenants/${tenantForDelete.id}`);
+      broadcastSync('tenant');
       setDeleteModalOpen(false);
       setTenantForDelete(null);
       loadData();
@@ -243,6 +245,7 @@ export default function AdminTenantsPage() {
         idempotencyKey,
       });
       cashIdempotencyKeyRef.current = null;
+      broadcastSync('payment');
       setCashModalOpen(false);
       loadData();
       toast.success(res?.message || 'Cash payment recorded and dues cleared.');

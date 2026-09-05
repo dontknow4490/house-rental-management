@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { api } from '@/lib/api';
 import { formatCurrencyNPR, getTodayBS } from '@/lib/nepali-date';
 import { generateIdempotencyKey } from '@/lib/idempotency';
+import { useAutoSync, broadcastSync } from '@/lib/sync';
 import { NepaliDatePicker } from '@/components/NepaliDatePicker';
 import { useToast } from '@/lib/toast-context';
 import { StatCard } from '@/components/ui/StatCard';
@@ -22,7 +23,6 @@ import {
   Home,
   DoorOpen,
   PlusCircle,
-  FileSpreadsheet,
   Droplets,
   ShoppingBag,
   Zap,
@@ -37,7 +37,6 @@ export default function AdminDashboardPage() {
   const [summary, setSummary] = useState<any>(null);
   const [rooms, setRooms] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(false);
   const [todayBS, setTodayBS] = useState<{
     nepaliFullFormatted: string;
     yearBS: number;
@@ -85,63 +84,53 @@ export default function AdminDashboardPage() {
     loadData();
   }, []);
 
-  const handleGenerateBills = async () => {
-    if (generating) return;
-    try {
-      setGenerating(true);
-      const currentToday = todayBS || getTodayBS();
-      const targetYear = summary?.period?.yearBS || currentToday.yearBS;
-      const targetMonth = summary?.period?.monthBS || currentToday.monthBS;
-
-      const res = await api.post('/billing/generate', {
-        yearBS: targetYear,
-        monthBS: targetMonth,
-      });
-      await loadData();
-      toast.success(res?.message || 'Monthly bills generated successfully.');
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to generate monthly bills');
-    } finally {
-      setGenerating(false);
-    }
-  };
+  // Real-time synchronization when payments, bills, water, electricity, or maintenance update
+  useAutoSync(loadData, ['payment', 'bill', 'electricity', 'water', 'custom_purchase', 'maintenance', 'all']);
 
   const handleOpenCashPayment = (targetRoom?: any) => {
     const today = getTodayBS();
-    if (targetRoom && targetRoom.tenant) {
-      const tId = targetRoom.tenant.id;
-      const tBills = unpaidBills.filter((b) => b.tenantId === tId);
-      const totalDue = tBills.reduce((sum, b) => sum + (b.balanceDue || 0), 0);
 
-      setCashForm({
-        roomId: targetRoom.id,
-        tenantId: tId,
-        tenantName: targetRoom.tenant.fullName,
-        roomNumber: String(targetRoom.roomNumber),
-        billId: tBills[0]?.id || '',
-        amount: totalDue > 0 ? String(totalDue) : '',
-        maxDue: totalDue,
-        paymentDateBS: today.nepaliFormatted,
-        notes: 'Direct Cash Payment received by Admin',
-      });
-    } else {
-      const firstOccupied = rooms.find((r) => r.status === 'OCCUPIED' && r.tenant);
-      const tId = firstOccupied?.tenant?.id || '';
-      const tBills = tId ? unpaidBills.filter((b) => b.tenantId === tId) : [];
-      const totalDue = tBills.reduce((sum, b) => sum + (b.balanceDue || 0), 0);
+    // 1. Accurately resolve room & tenant from targetRoom payload
+    const activeTenant = targetRoom?.tenant || (targetRoom as any)?.tenantProfiles?.[0]?.user || null;
+    const tId = activeTenant?.id || (targetRoom as any)?.tenantProfiles?.[0]?.userId || targetRoom?.tenantId || '';
+    const tName = activeTenant?.fullName || targetRoom?.tenantName || '';
+    const rId = targetRoom?.id || targetRoom?.roomId || '';
+    const rNum = String(targetRoom?.roomNumber || '');
 
-      setCashForm({
-        roomId: firstOccupied?.id || '',
-        tenantId: tId,
-        tenantName: firstOccupied?.tenant?.fullName || '',
-        roomNumber: String(firstOccupied?.roomNumber || ''),
-        billId: tBills[0]?.id || '',
-        amount: totalDue > 0 ? String(totalDue) : '',
-        maxDue: totalDue,
-        paymentDateBS: today.nepaliFormatted,
-        notes: 'Direct Cash Payment received by Admin',
+    let resolvedTenantId = tId;
+    let resolvedTenantName = tName;
+    let resolvedRoomId = rId;
+    let resolvedRoomNumber = rNum;
+
+    // Fallback only if no room was passed (e.g. from top header button)
+    if (!resolvedTenantId) {
+      const occupiedWithDue = rooms.find((r) => {
+        const t = r.tenant || (r as any).tenantProfiles?.[0]?.user;
+        return r.status === 'OCCUPIED' && t;
       });
+      if (occupiedWithDue) {
+        const t = occupiedWithDue.tenant || (occupiedWithDue as any).tenantProfiles?.[0]?.user;
+        resolvedRoomId = occupiedWithDue.id;
+        resolvedRoomNumber = String(occupiedWithDue.roomNumber);
+        resolvedTenantId = t?.id || (occupiedWithDue as any).tenantProfiles?.[0]?.userId || '';
+        resolvedTenantName = t?.fullName || '';
+      }
     }
+
+    const tBills = resolvedTenantId ? unpaidBills.filter((b) => b.tenantId === resolvedTenantId) : [];
+    const totalDue = tBills.reduce((sum, b) => sum + (b.balanceDue || 0), 0);
+
+    setCashForm({
+      roomId: resolvedRoomId,
+      tenantId: resolvedTenantId,
+      tenantName: resolvedTenantName || 'Tenant',
+      roomNumber: resolvedRoomNumber,
+      billId: tBills[0]?.id || '',
+      amount: totalDue > 0 ? String(totalDue) : '',
+      maxDue: totalDue,
+      paymentDateBS: today.nepaliFormatted,
+      notes: 'Direct Cash Payment received by Admin',
+    });
     setCashModalOpen(true);
   };
 
@@ -173,6 +162,7 @@ export default function AdminDashboardPage() {
         idempotencyKey,
       });
       cashIdempotencyKeyRef.current = null;
+      broadcastSync('payment');
       toast.success(res?.message || 'Cash payment recorded and dues cleared successfully.');
       setCashModalOpen(false);
       loadData();
@@ -246,16 +236,6 @@ export default function AdminDashboardPage() {
             >
               <PlusCircle className="w-4 h-4" />
               <span>Record Cash</span>
-            </Button>
-            <Button
-              onClick={handleGenerateBills}
-              disabled={generating}
-              variant="secondary"
-              size="sm"
-              className="bg-white/10 hover:bg-white/20 text-white border border-white/20 font-semibold"
-            >
-              <FileSpreadsheet className="w-4 h-4" />
-              <span>{generating ? 'Generating...' : 'Generate Bills'}</span>
             </Button>
           </div>
         </div>

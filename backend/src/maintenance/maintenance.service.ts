@@ -11,6 +11,7 @@ import { MaintenancePriority, MaintenanceStatus } from '@prisma/client';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
 
 import { NotificationsService } from '../notifications/notifications.service';
+import { executeWithIdempotency } from '../common/utils/async-lock.util';
 
 export interface CreateMaintenanceDto {
   title: string;
@@ -18,11 +19,13 @@ export interface CreateMaintenanceDto {
   description: string;
   priority?: MaintenancePriority;
   photoPath?: string;
+  idempotencyKey?: string;
 }
 
 export interface UpdateMaintenanceStatusDto {
   status: MaintenanceStatus | string;
   adminNotes?: string;
+  idempotencyKey?: string;
 }
 
 @Injectable()
@@ -66,48 +69,50 @@ export class MaintenanceService {
 
     const todayBS = this.nepaliCalendarService.getCurrentNepaliDate();
 
-    const request = await this.prisma.maintenanceRequest.create({
-      data: {
-        tenantId,
-        roomId: profile.roomId,
-        title: dto.title.trim(),
-        category,
-        description: dto.description.trim(),
-        priority: dto.priority || 'MEDIUM',
-        photoPath: photoPath || dto.photoPath || null,
-        status: 'NEW',
-        createdDateBS: todayBS.nepaliFormatted,
-      },
-    });
+    return await executeWithIdempotency('maintenance_create', tenantId, dto.idempotencyKey, async () => {
+      const request = await this.prisma.maintenanceRequest.create({
+        data: {
+          tenantId,
+          roomId: profile.roomId,
+          title: dto.title.trim(),
+          category,
+          description: dto.description.trim(),
+          priority: dto.priority || 'MEDIUM',
+          photoPath: photoPath || dto.photoPath || null,
+          status: 'NEW',
+          createdDateBS: todayBS.nepaliFormatted,
+        },
+      });
 
-    await this.auditLogService.log({
-      userId: tenantId,
-      action: 'MAINTENANCE_REQUEST_CREATED',
-      details: {
-        requestId: request.id,
-        title: request.title,
-        category: request.category,
-        roomNumber: profile.room.roomNumber,
-        priority: request.priority,
-      },
-      ipAddress,
-    });
+      await this.auditLogService.log({
+        userId: tenantId,
+        action: 'MAINTENANCE_REQUEST_CREATED',
+        details: {
+          requestId: request.id,
+          title: request.title,
+          category: request.category,
+          roomNumber: profile.room.roomNumber,
+          priority: request.priority,
+        },
+        ipAddress,
+      });
 
-    // Notify all active Admins about the new maintenance request
-    await this.notificationsService.notifyAdmins({
-      type: 'MAINTENANCE_UPDATE',
-      title: 'New Maintenance Request',
-      message: `Room ${profile.room.roomNumber} (${profile.user?.fullName || 'Tenant'}): ${request.title} [${request.category}]`,
-      link: '/admin/maintenance',
-      data: {
-        requestId: request.id,
-        roomNumber: profile.room.roomNumber,
-        category: request.category,
-        priority: request.priority,
-      },
-    });
+      // Notify all active Admins about the new maintenance request
+      await this.notificationsService.notifyAdmins({
+        type: 'MAINTENANCE_UPDATE',
+        title: 'New Maintenance Request',
+        message: `Room ${profile.room.roomNumber} (${profile.user?.fullName || 'Tenant'}): ${request.title} [${request.category}]`,
+        link: '/admin/maintenance',
+        data: {
+          requestId: request.id,
+          roomNumber: profile.room.roomNumber,
+          category: request.category,
+          priority: request.priority,
+        },
+      });
 
-    return request;
+      return request;
+    });
   }
 
   async getRequests(tenantId?: string) {
@@ -159,41 +164,43 @@ export class MaintenanceService {
       status = 'NEW';
     }
 
-    const updated = await this.prisma.maintenanceRequest.update({
-      where: { id },
-      data: {
-        status,
-        adminNotes: dto.adminNotes !== undefined ? dto.adminNotes?.trim() : req.adminNotes,
-      },
+    return await executeWithIdempotency('maintenance_update', adminId, dto.idempotencyKey, async () => {
+      const updated = await this.prisma.maintenanceRequest.update({
+        where: { id },
+        data: {
+          status,
+          adminNotes: dto.adminNotes !== undefined ? dto.adminNotes?.trim() : req.adminNotes,
+        },
+      });
+
+      await this.auditLogService.log({
+        userId: adminId,
+        action: 'MAINTENANCE_STATUS_UPDATED',
+        details: { requestId: id, status, notes: dto.adminNotes },
+        ipAddress,
+      });
+
+      // Notify the tenant about maintenance status update
+      const statusLabels: Record<string, string> = {
+        NEW: 'New',
+        IN_PROGRESS: 'In Progress',
+        COMPLETED: 'Completed',
+      };
+      const statusText = statusLabels[status] || status;
+
+      await this.notificationsService.notifyTenant(req.tenantId, {
+        type: 'MAINTENANCE_UPDATE',
+        title: 'Maintenance Status Updated',
+        message: `Your request "${req.title}" for Room ${req.room.roomNumber} is now ${statusText}.${dto.adminNotes ? ` Note: ${dto.adminNotes}` : ''}`,
+        link: '/tenant/maintenance',
+        data: {
+          requestId: id,
+          status: dto.status,
+          adminNotes: dto.adminNotes,
+        },
+      });
+
+      return updated;
     });
-
-    await this.auditLogService.log({
-      userId: adminId,
-      action: 'MAINTENANCE_STATUS_UPDATED',
-      details: { requestId: id, status, notes: dto.adminNotes },
-      ipAddress,
-    });
-
-    // Notify the tenant about maintenance status update
-    const statusLabels: Record<string, string> = {
-      NEW: 'New',
-      IN_PROGRESS: 'In Progress',
-      COMPLETED: 'Completed',
-    };
-    const statusText = statusLabels[status] || status;
-
-    await this.notificationsService.notifyTenant(req.tenantId, {
-      type: 'MAINTENANCE_UPDATE',
-      title: 'Maintenance Status Updated',
-      message: `Your request "${req.title}" for Room ${req.room.roomNumber} is now ${statusText}.${dto.adminNotes ? ` Note: ${dto.adminNotes}` : ''}`,
-      link: '/tenant/maintenance',
-      data: {
-        requestId: id,
-        status: dto.status,
-        adminNotes: dto.adminNotes,
-      },
-    });
-
-    return updated;
   }
 }

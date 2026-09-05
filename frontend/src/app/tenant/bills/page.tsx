@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { formatCurrencyNPR } from '@/lib/nepali-date';
 import { useToast } from '@/lib/toast-context';
+import { useAutoSync } from '@/lib/sync';
 import Link from 'next/link';
 
 export default function TenantBillsPage() {
@@ -16,7 +17,7 @@ export default function TenantBillsPage() {
     try {
       if (!isBackground) setLoading(true);
       const data = await api.get('/billing/my-history');
-      setBills(data);
+      setBills(Array.isArray(data) ? data : []);
     } catch (err: any) {
       if (!isBackground) toast.error(err.message || 'Failed to load billing history');
     } finally {
@@ -26,20 +27,10 @@ export default function TenantBillsPage() {
 
   useEffect(() => {
     loadBills();
-
-    const interval = setInterval(() => loadBills(true), 6000);
-    const onFocus = () => loadBills(true);
-    const onPaymentUpdated = () => loadBills(true);
-
-    window.addEventListener('focus', onFocus);
-    window.addEventListener('payment_updated', onPaymentUpdated);
-
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('focus', onFocus);
-      window.removeEventListener('payment_updated', onPaymentUpdated);
-    };
   }, []);
+
+  // Real-time synchronization for tenant bills
+  useAutoSync(() => loadBills(true), ['bill', 'payment', 'electricity', 'water', 'all']);
 
   const handleOpenBillDetails = async (b: any) => {
     setSelectedBill(b);
