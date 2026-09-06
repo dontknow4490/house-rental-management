@@ -20,11 +20,13 @@ import { MaintenanceModule } from './maintenance/maintenance.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { CustomPurchasesModule } from './custom-purchases/custom-purchases.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
+import { MediaModule } from './media/media.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     CloudinaryModule,
+    MediaModule,
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({

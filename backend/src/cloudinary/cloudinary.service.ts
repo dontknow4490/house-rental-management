@@ -178,6 +178,36 @@ export class CloudinaryService {
     return lastPart.replace(/\.[^/.]+$/, '');
   }
 
+  /**
+   * Lists actual Cloudinary resources under the application prefix 'house-rental/'
+   */
+  async listAllCloudinaryResources(prefix: string = 'house-rental/'): Promise<any[]> {
+    if (!this.isCloudinaryConfigured) return [];
+    try {
+      const publicAssets = await cloudinary.api.resources({
+        type: 'upload',
+        prefix,
+        max_results: 500,
+      });
+
+      const privateAssets = await cloudinary.api.resources({
+        type: 'authenticated',
+        prefix,
+        max_results: 500,
+      });
+
+      const allResources = [
+        ...(publicAssets.resources || []).map((r: any) => ({ ...r, accessType: 'public' })),
+        ...(privateAssets.resources || []).map((r: any) => ({ ...r, accessType: 'private' })),
+      ];
+
+      return allResources;
+    } catch (err: any) {
+      this.logger.error(`Failed to fetch Cloudinary resources: ${err.message}`);
+      return [];
+    }
+  }
+
   private ensureConfigured() {
     if (!this.isCloudinaryConfigured) {
       throw new InternalServerErrorException(

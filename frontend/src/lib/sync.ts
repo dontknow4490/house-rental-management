@@ -86,8 +86,10 @@ export function useAutoSync(
       const customEvent = e as CustomEvent;
       triggerSync(customEvent.detail?.type);
     };
+    const handlePaymentUpdated = () => triggerSync('payment');
+
     window.addEventListener('rental_sync_event', handleCustomEvent);
-    window.addEventListener('payment_updated', () => triggerSync('payment'));
+    window.addEventListener('payment_updated', handlePaymentUpdated);
 
     // 2. Cross-tab listener
     let channel: BroadcastChannel | null = broadcastChannel;
@@ -117,7 +119,7 @@ export function useAutoSync(
         clearTimeout(debounceTimerRef.current);
       }
       window.removeEventListener('rental_sync_event', handleCustomEvent);
-      window.removeEventListener('payment_updated', () => triggerSync('payment'));
+      window.removeEventListener('payment_updated', handlePaymentUpdated);
       if (channel) {
         channel.removeEventListener('message', handleBroadcastMessage);
       }

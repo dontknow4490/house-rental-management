@@ -160,4 +160,111 @@ export class SettingsController {
     }
     return this.settingsService.removeEsewaQr(adminId, ipAddress);
   }
+
+  @Post('upload-bank-qr')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @UseInterceptors(
+    AnyFilesInterceptor({
+      storage: memoryStorage(),
+      limits: { fileSize: 10 * 1024 * 1024 },
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype.match(/\/(jpg|jpeg|png|webp)$/)) {
+          return cb(new BadRequestException('Only JPG, JPEG, PNG, and WEBP image files are allowed!'), false);
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  async uploadBankQr(
+    @UploadedFiles() files: Express.Multer.File[] | Express.Multer.File,
+    @CurrentUser('id') adminId: string,
+    @Ip() ipAddress: string,
+  ) {
+    const file = Array.isArray(files) ? (files.length > 0 ? files[0] : undefined) : files;
+    if (!file) {
+      throw new BadRequestException('No image file provided');
+    }
+    validateUploadedFile(file, { allowPdf: false });
+
+    // 1. Get existing Bank QR value to clean up after successful update
+    const oldQr = await this.settingsService.getSetting('BANK_QR_IMAGE');
+
+    // 2. Upload to Cloudinary public folder
+    const filename = `bank_qr_${Date.now()}`;
+    const uploadResult = await this.cloudinaryService.uploadPublicAsset(
+      file,
+      'house-rental/public/qr',
+      filename,
+    );
+
+    // 3. Update database only after upload succeeds
+    try {
+      await this.settingsService.updateSettings(
+        {
+          BANK_QR_IMAGE: uploadResult.secureUrl,
+        },
+        adminId,
+        ipAddress,
+      );
+    } catch (dbErr) {
+      await this.cloudinaryService.deleteAsset(uploadResult.publicId, 'image', 'upload');
+      throw dbErr;
+    }
+
+    // 4. Delete old Cloudinary asset if previously stored on Cloudinary
+    if (oldQr && oldQr.includes('cloudinary.com')) {
+      const oldPublicId = this.cloudinaryService.extractPublicId(oldQr);
+      if (oldPublicId) {
+        await this.cloudinaryService.deleteAsset(oldPublicId, 'image', 'upload');
+      }
+    }
+
+    return {
+      message: 'Bank QR code uploaded successfully',
+      qrPath: uploadResult.secureUrl,
+      url: uploadResult.secureUrl,
+      bank_qr_path: uploadResult.secureUrl,
+    };
+  }
+
+  @Post('bank-qr-code')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @UseInterceptors(
+    AnyFilesInterceptor({
+      storage: memoryStorage(),
+      limits: { fileSize: 10 * 1024 * 1024 },
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype.match(/\/(jpg|jpeg|png|webp)$/)) {
+          return cb(new BadRequestException('Only JPG, JPEG, PNG, and WEBP image files are allowed!'), false);
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  async uploadBankQrAlias(
+    @UploadedFiles() files: Express.Multer.File[] | Express.Multer.File,
+    @CurrentUser('id') adminId: string,
+    @Ip() ipAddress: string,
+  ) {
+    return this.uploadBankQr(files, adminId, ipAddress);
+  }
+
+  @Delete('bank-qr')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  async removeBankQr(
+    @CurrentUser('id') adminId: string,
+    @Ip() ipAddress: string,
+  ) {
+    const currentQr = await this.settingsService.getSetting('BANK_QR_IMAGE');
+    if (currentQr && currentQr.includes('cloudinary.com')) {
+      const publicId = this.cloudinaryService.extractPublicId(currentQr);
+      if (publicId) {
+        await this.cloudinaryService.deleteAsset(publicId, 'image', 'upload');
+      }
+    }
+    return this.settingsService.removeBankQr(adminId, ipAddress);
+  }
 }

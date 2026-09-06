@@ -10,6 +10,7 @@ export const DEFAULT_SETTINGS: Record<string, { value: string; description: stri
   ESEWA_ACCOUNT_NAME: { value: 'House Rental Admin', description: 'eSewa account display name' },
   ESEWA_ID: { value: '9800000000', description: 'eSewa phone/ID' },
   ESEWA_QR_IMAGE: { value: '', description: 'Uploaded eSewa QR Code image path' },
+  BANK_QR_IMAGE: { value: '', description: 'Uploaded Bank QR Code image path' },
   BANK_NAME: { value: 'Standard Chartered Bank', description: 'Bank Name' },
   BANK_ACCOUNT_NAME: { value: 'House Rental Admin', description: 'Bank Account Holder Name' },
   BANK_ACCOUNT_NUMBER: { value: '00000000000000', description: 'Bank Account Number' },
@@ -63,6 +64,8 @@ export class SettingsService {
       paymentQrCode: 'ESEWA_QR_IMAGE',
       payment_qr_path: 'ESEWA_QR_IMAGE',
       qrPath: 'ESEWA_QR_IMAGE',
+      bankQrImage: 'BANK_QR_IMAGE',
+      bank_qr_path: 'BANK_QR_IMAGE',
       esewaAccountName: 'ESEWA_ACCOUNT_NAME',
       esewaId: 'ESEWA_ID',
       electricityRate: 'ELECTRICITY_UNIT_RATE',
@@ -79,8 +82,8 @@ export class SettingsService {
     for (let [rawKey, value] of Object.entries(settings)) {
       const key = keyAliases[rawKey] || rawKey;
 
-      // Protect ESEWA_QR_IMAGE: If value is empty, don't overwrite existing QR image in bulk updates
-      if (key === 'ESEWA_QR_IMAGE' && (!value || String(value).trim() === '')) {
+      // Protect ESEWA_QR_IMAGE & BANK_QR_IMAGE: If value is empty, don't overwrite existing QR image in bulk updates
+      if ((key === 'ESEWA_QR_IMAGE' || key === 'BANK_QR_IMAGE') && (!value || String(value).trim() === '')) {
         const existing = await this.prisma.systemSetting.findUnique({ where: { key } });
         if (existing && existing.value) {
           continue; // Preserve permanent QR configuration
@@ -123,11 +126,32 @@ export class SettingsService {
     await this.auditLogService.log({
       userId: adminUserId,
       action: 'SYSTEM_SETTINGS_UPDATED',
-      details: { action: 'QR_CODE_REMOVED' },
+      details: { action: 'ESEWA_QR_CODE_REMOVED' },
       ipAddress,
     });
 
     return { message: 'eSewa QR Code removed successfully.' };
+  }
+
+  async removeBankQr(adminUserId: string, ipAddress?: string) {
+    await this.prisma.systemSetting.upsert({
+      where: { key: 'BANK_QR_IMAGE' },
+      update: { value: '' },
+      create: {
+        key: 'BANK_QR_IMAGE',
+        value: '',
+        description: DEFAULT_SETTINGS['BANK_QR_IMAGE']?.description || '',
+      },
+    });
+
+    await this.auditLogService.log({
+      userId: adminUserId,
+      action: 'SYSTEM_SETTINGS_UPDATED',
+      details: { action: 'BANK_QR_CODE_REMOVED' },
+      ipAddress,
+    });
+
+    return { message: 'Bank QR Code removed successfully.' };
   }
 
   async getPublicPaymentSettings() {
@@ -145,6 +169,8 @@ export class SettingsService {
       bankAccountName: settings.BANK_ACCOUNT_NAME || '',
       bankAccountNumber: settings.BANK_ACCOUNT_NUMBER || '',
       bankBranch: settings.BANK_BRANCH || '',
+      bankQrImage: settings.BANK_QR_IMAGE || '',
+      bank_qr_path: settings.BANK_QR_IMAGE || '',
       paymentInstructions: settings.PAYMENT_INSTRUCTIONS || '',
     };
   }

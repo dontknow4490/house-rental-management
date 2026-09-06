@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { api, getFileUrl } from '@/lib/api';
 import { formatCurrencyNPR, getTodayBS } from '@/lib/nepali-date';
 import { generateIdempotencyKey } from '@/lib/idempotency';
-import { broadcastSync } from '@/lib/sync';
+import { useAutoSync, broadcastSync } from '@/lib/sync';
 import { useToast } from '@/lib/toast-context';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -15,6 +15,7 @@ export default function TenantPayPage() {
   const [bill, setBill] = useState<any>(null);
   const [pubSettings, setPubSettings] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [qrModalUrl, setQrModalUrl] = useState<string | null>(null);
 
   const [paymentMethod, setPaymentMethod] = useState('ESEWA');
   const [amount, setAmount] = useState<string>('');
@@ -26,43 +27,36 @@ export default function TenantPayPage() {
   const [todayBS, setTodayBS] = useState<{ nepaliFullFormatted: string; nepaliFormatted: string } | null>(null);
   const [isAdvanceMode, setIsAdvanceMode] = useState(false);
 
+  const loadData = async (isBackground = false) => {
+    try {
+      if (!isBackground) setLoading(true);
+      const [bData, sData] = await Promise.all([
+        api.get('/billing/my-active'),
+        api.get('/settings/public-payment'),
+      ]);
+      setBill(bData);
+      setPubSettings(sData);
+      if (bData && !isBackground) {
+        const totalDue = bData.totalOutstanding !== undefined ? bData.totalOutstanding : (bData.balanceDue || 0);
+        setAmount(String(totalDue));
+      }
+    } catch (err: any) {
+      if (!isBackground) toast.error(err.message || 'Failed to load billing details');
+    } finally {
+      if (!isBackground) setLoading(false);
+    }
+  };
+
   useEffect(() => {
     setTodayBS(getTodayBS());
-    const load = async (isBackground = false) => {
-      try {
-        if (!isBackground) setLoading(true);
-        const [bData, sData] = await Promise.all([
-          api.get('/billing/my-active'),
-          api.get('/settings/public-payment'),
-        ]);
-        setBill(bData);
-        setPubSettings(sData);
-        if (bData && !isBackground) {
-          const totalDue = bData.totalOutstanding !== undefined ? bData.totalOutstanding : (bData.balanceDue || 0);
-          setAmount(String(totalDue));
-        }
-      } catch (err: any) {
-        if (!isBackground) toast.error(err.message || 'Failed to load billing details');
-      } finally {
-        if (!isBackground) setLoading(false);
-      }
-    };
-    load();
+    loadData();
 
-    // Auto-refresh every 15s or immediately on window focus/payment notification
-    const interval = setInterval(() => load(true), 15000);
-    const onFocus = () => load(true);
-    const onPaymentUpdated = () => load(true);
-
-    window.addEventListener('focus', onFocus);
-    window.addEventListener('payment_updated', onPaymentUpdated);
-
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('focus', onFocus);
-      window.removeEventListener('payment_updated', onPaymentUpdated);
-    };
+    // Auto-refresh every 15s or immediately on window focus
+    const interval = setInterval(() => loadData(true), 15000);
+    return () => clearInterval(interval);
   }, []);
+
+  useAutoSync(() => loadData(true), ['payment', 'bill', 'settings', 'all']);
 
   const totalDue = bill?.totalOutstanding !== undefined ? bill.totalOutstanding : (bill?.balanceDue || 0);
   const isPaidInFull = (bill?.allBillsPaid || totalDue === 0) && !isAdvanceMode;
@@ -343,16 +337,23 @@ export default function TenantPayPage() {
             {/* QR / Details Display */}
             {paymentMethod === 'ESEWA' && (
               <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-center space-y-2.5">
-                {pubSettings?.paymentQrCode || pubSettings?.esewaQrImage ? (
-                  <div className="flex justify-center">
-                    <img
-                      src={getFileUrl(pubSettings.paymentQrCode || pubSettings.esewaQrImage)}
-                      alt="Owner QR Code"
-                      className="w-40 h-40 object-contain rounded-lg bg-white p-2 border border-slate-200 shadow-sm"
-                    />
+                {(pubSettings?.paymentQrCode || pubSettings?.esewaQrImage) ? (
+                  <div className="flex flex-col items-center justify-center space-y-1">
+                    <div
+                      onClick={() => setQrModalUrl(getFileUrl(pubSettings.paymentQrCode || pubSettings.esewaQrImage))}
+                      className="w-40 h-40 object-contain rounded-lg bg-white p-2 border border-slate-200 shadow-xs cursor-pointer hover:opacity-90 transition group relative"
+                      title="Click to expand full size"
+                    >
+                      <img
+                        src={getFileUrl(pubSettings.paymentQrCode || pubSettings.esewaQrImage)}
+                        alt="eSewa QR Code"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                    <span className="text-[10px] text-slate-500 font-medium">Click QR to enlarge</span>
                   </div>
                 ) : null}
-                <div className="text-slate-700">
+                <div className="text-slate-700 pt-1">
                   <div className="font-bold text-slate-900 text-sm">eSewa ID: {pubSettings?.esewaId || '9761848471'}</div>
                   <div className="text-xs text-slate-500 font-medium">Account Name: {pubSettings?.esewaAccountName || 'Yubraj Shrestha'}</div>
                 </div>
@@ -360,11 +361,29 @@ export default function TenantPayPage() {
             )}
 
             {paymentMethod === 'BANK_TRANSFER' && (
-              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5 text-slate-700">
-                <div><span className="text-slate-500">Bank:</span> <span className="font-bold text-slate-900">{pubSettings?.bankName || 'Nabil Bank'}</span></div>
-                <div><span className="text-slate-500">Account No:</span> <span className="font-mono font-bold text-slate-900">{pubSettings?.bankAccountNumber || '15310017504670'}</span></div>
-                <div><span className="text-slate-500">Account Name:</span> <span className="font-bold text-slate-900">{pubSettings?.bankAccountName || 'Yubraj Shrestha'}</span></div>
-                <div><span className="text-slate-500">Branch:</span> <span className="text-slate-800 font-medium">{pubSettings?.bankBranch || 'Imadol'}</span></div>
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-center space-y-3">
+                {(pubSettings?.bankQrImage || pubSettings?.bank_qr_path) ? (
+                  <div className="flex flex-col items-center justify-center space-y-1">
+                    <div
+                      onClick={() => setQrModalUrl(getFileUrl(pubSettings.bankQrImage || pubSettings.bank_qr_path))}
+                      className="w-40 h-40 object-contain rounded-lg bg-white p-2 border border-slate-200 shadow-xs cursor-pointer hover:opacity-90 transition group relative"
+                      title="Click to expand full size"
+                    >
+                      <img
+                        src={getFileUrl(pubSettings.bankQrImage || pubSettings.bank_qr_path)}
+                        alt="Bank Transfer QR Code"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                    <span className="text-[10px] text-slate-500 font-medium">Click QR to enlarge</span>
+                  </div>
+                ) : null}
+                <div className="text-left space-y-1 text-slate-700 bg-white p-3 rounded-lg border border-slate-200/80">
+                  <div><span className="text-slate-500">Bank:</span> <span className="font-bold text-slate-900">{pubSettings?.bankName || 'Standard Chartered Bank'}</span></div>
+                  <div><span className="text-slate-500">Account No:</span> <span className="font-mono font-bold text-slate-900">{pubSettings?.bankAccountNumber || '00000000000000'}</span></div>
+                  <div><span className="text-slate-500">Account Name:</span> <span className="font-bold text-slate-900">{pubSettings?.bankAccountName || 'House Rental Admin'}</span></div>
+                  <div><span className="text-slate-500">Branch:</span> <span className="text-slate-800 font-medium">{pubSettings?.bankBranch || 'Kathmandu'}</span></div>
+                </div>
               </div>
             )}
 
@@ -446,6 +465,39 @@ export default function TenantPayPage() {
         <div className="bg-white border border-slate-200 rounded-xl p-10 text-center text-slate-500 shadow-sm">
           <p className="font-semibold text-slate-900">No active bill due</p>
           <p className="text-xs text-slate-400 mt-1">You do not have any pending bills to pay right now.</p>
+        </div>
+      )}
+
+      {/* Full-Size QR Preview Modal */}
+      {qrModalUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="relative max-w-lg w-full bg-white rounded-2xl overflow-hidden shadow-2xl flex flex-col">
+            <div className="p-3.5 bg-slate-900 text-white flex items-center justify-between">
+              <span className="font-bold text-xs">Payment QR Code</span>
+              <button
+                onClick={() => setQrModalUrl(null)}
+                className="text-slate-400 hover:text-white p-1 font-bold text-lg leading-none"
+              >
+                &times;
+              </button>
+            </div>
+            <div className="p-6 bg-slate-950 flex items-center justify-center">
+              <img
+                src={qrModalUrl}
+                alt="Payment QR Code Full Size"
+                className="max-w-full max-h-[70vh] object-contain rounded-lg shadow-lg"
+              />
+            </div>
+            <div className="p-3 bg-slate-900 border-t border-slate-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setQrModalUrl(null)}
+                className="px-4 py-1.5 rounded bg-white text-slate-900 font-bold text-xs hover:bg-slate-100"
+              >
+                Close Preview
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
