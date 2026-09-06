@@ -48,7 +48,7 @@ export class RoomsService {
     });
 
     return rooms.map((room) => {
-      const activeTenant = room.tenantProfiles[0] || null;
+      const activeTenant = room.tenantProfiles.find((tp) => tp.status === 'ACTIVE' && tp.user) || room.tenantProfiles[0] || null;
       const currentReading = room.electricityReadings[0] || null;
       const currentBill = room.monthlyBills[0] || null;
 

@@ -911,5 +911,134 @@ describe('PaymentsService - Data Integrity & Audit Verification', () => {
         expect(res.receipt.roomNumber).toBe(r);
       }
     });
+
+    it('Test J: Room 7 end-to-end cash payment strictly attaches to Room 7 tenant and Room 7 bill without fallback to Room 1', async () => {
+      const room7Tenant = {
+        id: 'tenant-7',
+        fullName: 'Ram Bahadur (Room 7)',
+        username: 'ram7',
+        tenantProfile: {
+          room: { roomNumber: 7 },
+        },
+      };
+
+      const room7Bill = {
+        id: 'bill-room-7',
+        tenantId: 'tenant-7',
+        roomId: 'room-7',
+        yearBS: 2083,
+        monthBS: 5,
+        totalAmount: 8500,
+        paidAmount: 0,
+        balanceDue: 8500,
+        status: 'UNPAID',
+        room: { roomNumber: 7 },
+      };
+
+      prismaService.user.findUnique.mockImplementation(({ where }) => {
+        if (where.id === 'tenant-7') return Promise.resolve(room7Tenant);
+        return Promise.resolve(null);
+      });
+
+      prismaService.monthlyBill.findUnique.mockImplementation(({ where }) => {
+        if (where.id === 'bill-room-7') return Promise.resolve(room7Bill);
+        return Promise.resolve(null);
+      });
+
+      prismaService.monthlyBill.findFirst.mockResolvedValue(room7Bill);
+      prismaService.monthlyBill.findMany.mockResolvedValue([room7Bill]);
+      prismaService.payment.findMany.mockResolvedValue([]);
+
+      let createdPaymentData: any = null;
+      prismaService.payment.create.mockImplementation(({ data }) => {
+        createdPaymentData = data;
+        return Promise.resolve({
+          id: 'pay-room-7-cash',
+          ...data,
+          digitalReceipt: { id: 'rec-r7', receiptNumber: 'REC-2083-05-0007' },
+        });
+      });
+
+      const res = await service.recordCashPayment(
+        {
+          tenantId: 'tenant-7',
+          billId: 'bill-room-7',
+          amount: 8500,
+          paymentDateBS: '2083-05-20',
+          idempotencyKey: 'cash-r7-end-to-end-1',
+        },
+        'admin-1',
+      );
+
+      expect(createdPaymentData).not.toBeNull();
+      expect(createdPaymentData.tenantId).toBe('tenant-7');
+      expect(createdPaymentData.billId).toBe('bill-room-7');
+      expect(createdPaymentData.amount).toBe(8500);
+      expect(res.receipt.roomNumber).toBe(7);
+      expect(res.receipt.tenantName).toBe('Ram Bahadur (Room 7)');
+    });
+
+    it('Test K: Arbitrary Room 20 dynamic payment verification', async () => {
+      const room20Tenant = {
+        id: 'tenant-20',
+        fullName: 'Sita Devi (Room 20)',
+        username: 'sita20',
+        tenantProfile: {
+          room: { roomNumber: 20 },
+        },
+      };
+
+      const room20Bill = {
+        id: 'bill-room-20',
+        tenantId: 'tenant-20',
+        roomId: 'room-20',
+        yearBS: 2083,
+        monthBS: 5,
+        totalAmount: 12000,
+        paidAmount: 0,
+        balanceDue: 12000,
+        status: 'UNPAID',
+        room: { roomNumber: 20 },
+      };
+
+      prismaService.user.findUnique.mockImplementation(({ where }) => {
+        if (where.id === 'tenant-20') return Promise.resolve(room20Tenant);
+        return Promise.resolve(null);
+      });
+
+      prismaService.monthlyBill.findUnique.mockImplementation(({ where }) => {
+        if (where.id === 'bill-room-20') return Promise.resolve(room20Bill);
+        return Promise.resolve(null);
+      });
+
+      prismaService.monthlyBill.findFirst.mockResolvedValue(room20Bill);
+      prismaService.monthlyBill.findMany.mockResolvedValue([room20Bill]);
+      prismaService.payment.findMany.mockResolvedValue([]);
+
+      let createdPaymentData: any = null;
+      prismaService.payment.create.mockImplementation(({ data }) => {
+        createdPaymentData = data;
+        return Promise.resolve({
+          id: 'pay-room-20-cash',
+          ...data,
+          digitalReceipt: { id: 'rec-r20', receiptNumber: 'REC-2083-05-0020' },
+        });
+      });
+
+      const res = await service.recordCashPayment(
+        {
+          tenantId: 'tenant-20',
+          billId: 'bill-room-20',
+          amount: 12000,
+          paymentDateBS: '2083-05-20',
+          idempotencyKey: 'cash-r20-dynamic-test',
+        },
+        'admin-1',
+      );
+
+      expect(createdPaymentData.tenantId).toBe('tenant-20');
+      expect(createdPaymentData.billId).toBe('bill-room-20');
+      expect(res.receipt.roomNumber).toBe(20);
+    });
   });
 });

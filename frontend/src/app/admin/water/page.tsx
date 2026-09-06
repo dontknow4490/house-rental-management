@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { formatCurrencyNPR, getTodayBS, NEPALI_MONTH_NAMES } from '@/lib/nepali-date';
 import { generateIdempotencyKey } from '@/lib/idempotency';
 import { ConfirmModal } from '@/components/ConfirmModal';
+import { useAutoSync, broadcastSync } from '@/lib/sync';
 import { useToast } from '@/lib/toast-context';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/Button';
@@ -72,6 +73,8 @@ export default function AdminWaterPage() {
     loadData();
   }, []);
 
+  useAutoSync(loadData, ['water', 'bill', 'room', 'all']);
+
   const handleAddPurchase = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmittingRef.current) return;
@@ -95,6 +98,8 @@ export default function AdminWaterPage() {
         idempotencyKey,
       });
       idempotencyKeyRef.current = null;
+      broadcastSync('water');
+      broadcastSync('bill');
       setModalOpen(false);
       const today = getTodayBS();
       setForm({
@@ -130,6 +135,8 @@ export default function AdminWaterPage() {
       setDeleteModalOpen(false);
       setDeleteTargetId(null);
       await api.delete(`/water/${targetId}`);
+      broadcastSync('water');
+      broadcastSync('bill');
       toast.success('Water purchase record removed.');
     } catch (err: any) {
       toast.error(err.message || 'Failed to delete purchase');

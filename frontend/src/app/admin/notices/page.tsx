@@ -23,6 +23,8 @@ import {
   CheckCircle,
 } from 'lucide-react';
 
+import { useAutoSync, broadcastSync } from '@/lib/sync';
+
 export default function AdminNoticesPage() {
   const toast = useToast();
   const [notices, setNotices] = useState<any[]>([]);
@@ -53,6 +55,8 @@ export default function AdminNoticesPage() {
     loadNotices();
   }, []);
 
+  useAutoSync(loadNotices, ['notice', 'all']);
+
   const handleCreateNotice = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.title.trim() || !form.content.trim()) {
@@ -62,6 +66,7 @@ export default function AdminNoticesPage() {
 
     try {
       await api.post('/notices', form);
+      broadcastSync('notice');
       setModalOpen(false);
       setForm({ title: '', content: '', category: 'GENERAL' });
       loadNotices();
@@ -74,6 +79,7 @@ export default function AdminNoticesPage() {
   const handleToggleActive = async (id: string) => {
     try {
       await api.put(`/notices/${id}/toggle`, {});
+      broadcastSync('notice');
       loadNotices();
       toast.success('Notice status updated.');
     } catch (err: any) {
@@ -90,6 +96,7 @@ export default function AdminNoticesPage() {
     if (!deleteTargetId) return;
     try {
       await api.delete(`/notices/${deleteTargetId}`);
+      broadcastSync('notice');
       setDeleteModalOpen(false);
       setDeleteTargetId(null);
       loadNotices();

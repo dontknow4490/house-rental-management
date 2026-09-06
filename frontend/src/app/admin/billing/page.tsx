@@ -129,8 +129,8 @@ export default function AdminBillingPage() {
     loadBills();
   }, [viewMode, selectedYearBS, selectedMonthBS]);
 
-  // Real-time synchronization when payments, bills, water, or electricity update
-  useAutoSync(loadBills, ['bill', 'payment', 'electricity', 'water', 'custom_purchase', 'all']);
+  // Real-time synchronization when rooms, tenants, payments, bills, water, or electricity update
+  useAutoSync(loadBills, ['bill', 'payment', 'room', 'tenant', 'electricity', 'water', 'custom_purchase', 'all']);
 
   const handleOpenBreakdown = async (billId: string) => {
     try {

@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { formatCurrencyNPR, getTodayBS, NEPALI_MONTH_NAMES } from '@/lib/nepali-date';
 import { generateIdempotencyKey } from '@/lib/idempotency';
 import { ConfirmModal } from '@/components/ConfirmModal';
+import { useAutoSync, broadcastSync } from '@/lib/sync';
 import { useToast } from '@/lib/toast-context';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/Button';
@@ -106,6 +107,8 @@ export default function AdminCustomPurchasesPage() {
     }));
     loadData();
   }, []);
+
+  useAutoSync(loadData, ['custom_purchase', 'bill', 'room', 'all']);
 
   const handleAddItemRow = () => {
     setBatchItems((prev) => [

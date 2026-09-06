@@ -69,8 +69,8 @@ export default function TenantDashboardPage() {
     loadTenantData();
   }, [loadTenantData]);
 
-  // Real-time synchronization whenever admin verifies payment, logs electricity, water, or updates maintenance
-  useAutoSync(() => loadTenantData(true), ['payment', 'bill', 'electricity', 'water', 'custom_purchase', 'maintenance', 'notice', 'all']);
+  // Real-time synchronization whenever admin verifies payment, logs electricity, water, or updates maintenance/rooms/tenants
+  useAutoSync(() => loadTenantData(true), ['payment', 'bill', 'electricity', 'water', 'custom_purchase', 'maintenance', 'notice', 'room', 'tenant', 'all']);
 
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text);

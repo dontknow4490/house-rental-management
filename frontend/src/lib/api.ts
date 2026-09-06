@@ -102,5 +102,9 @@ export const api = {
       method: 'PUT',
       body: body instanceof FormData ? body : JSON.stringify(body),
     }),
-  delete: <T = any>(url: string) => fetchApi<T>(url, { method: 'DELETE' }),
+  delete: <T = any>(url: string, body?: any) =>
+    fetchApi<T>(url, {
+      method: 'DELETE',
+      body: body ? JSON.stringify(body) : undefined,
+    }),
 };

@@ -3,7 +3,7 @@ import { RoomsService } from './rooms.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { NepaliCalendarService } from '../nepali-calendar/nepali-calendar.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 
 describe('RoomsService', () => {
   let service: RoomsService;
@@ -70,6 +70,44 @@ describe('RoomsService', () => {
       });
       expect(result.roomNumber).toBe(7);
       expect(auditLogService.log).toHaveBeenCalled();
+    });
+
+    it('correctly maps active tenant and OCCUPIED status for Room 7 in getAllRooms', async () => {
+      prismaService.room.findMany.mockResolvedValue([
+        {
+          id: 'r-7',
+          roomNumber: 7,
+          name: 'Room 7',
+          defaultRent: 8500,
+          tenantProfiles: [
+            {
+              id: 'tp-7',
+              userId: 'u-7',
+              status: 'ACTIVE',
+              numberOfPeople: 2,
+              monthlyRent: 8500,
+              moveInDateBS: '2083-01-01',
+              user: {
+                id: 'u-7',
+                username: 'tenant7',
+                fullName: 'Tenant Seven',
+                phone: '9800000007',
+                status: 'ACTIVE',
+              },
+            },
+          ],
+          electricityReadings: [],
+          monthlyBills: [],
+        },
+      ]);
+
+      const rooms = await service.getAllRooms();
+
+      expect(rooms).toHaveLength(1);
+      expect(rooms[0].roomNumber).toBe(7);
+      expect(rooms[0].status).toBe('OCCUPIED');
+      expect(rooms[0].tenant.fullName).toBe('Tenant Seven');
+      expect(rooms[0].tenant.id).toBe('u-7');
     });
 
     it('rejects creating a room if roomNumber already exists', async () => {

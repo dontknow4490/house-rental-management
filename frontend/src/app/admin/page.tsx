@@ -84,48 +84,98 @@ export default function AdminDashboardPage() {
     loadData();
   }, []);
 
-  // Real-time synchronization when payments, bills, water, electricity, or maintenance update
-  useAutoSync(loadData, ['payment', 'bill', 'electricity', 'water', 'custom_purchase', 'maintenance', 'all']);
+  // Real-time synchronization when rooms, tenants, payments, bills, water, electricity, or maintenance update
+  useAutoSync(loadData, ['room', 'tenant', 'payment', 'bill', 'electricity', 'water', 'custom_purchase', 'maintenance', 'all']);
 
-  const handleOpenCashPayment = (targetRoom?: any) => {
+  const handleOpenCashPayment = (targetPayload?: any) => {
     const today = getTodayBS();
 
-    // 1. Accurately resolve room & tenant from targetRoom payload
-    const activeTenant = targetRoom?.tenant || (targetRoom as any)?.tenantProfiles?.[0]?.user || null;
-    const tId = activeTenant?.id || (targetRoom as any)?.tenantProfiles?.[0]?.userId || targetRoom?.tenantId || '';
-    const tName = activeTenant?.fullName || targetRoom?.tenantName || '';
-    const rId = targetRoom?.id || targetRoom?.roomId || '';
-    const rNum = String(targetRoom?.roomNumber || '');
+    const isBillObject = Boolean(
+      targetPayload?.billNumber ||
+        targetPayload?.yearBS ||
+        (targetPayload?.roomId && targetPayload?.tenantId && targetPayload?.balanceDue !== undefined),
+    );
+    const isTenantObject = Boolean(
+      targetPayload?.role === 'TENANT' || targetPayload?.profile || targetPayload?.tenantProfile,
+    );
+    const isRoomObject = Boolean(
+      targetPayload?.defaultRent !== undefined ||
+        targetPayload?.tenantProfiles !== undefined ||
+        (targetPayload?.roomNumber !== undefined && !isBillObject),
+    );
 
-    let resolvedTenantId = tId;
-    let resolvedTenantName = tName;
-    let resolvedRoomId = rId;
-    let resolvedRoomNumber = rNum;
+    let resolvedRoomId = '';
+    let resolvedRoomNumber = '';
+    let resolvedTenantId = '';
+    let resolvedTenantName = '';
+    let targetBillId = '';
 
-    // Fallback only if no room was passed (e.g. from top header button)
+    if (isBillObject) {
+      targetBillId = targetPayload.id;
+      resolvedRoomId = targetPayload.roomId || targetPayload.room?.id || '';
+      resolvedRoomNumber = String(targetPayload.room?.roomNumber || targetPayload.roomNumber || '');
+      resolvedTenantId = targetPayload.tenantId || targetPayload.tenant?.id || '';
+      resolvedTenantName = targetPayload.tenant?.fullName || '';
+    } else if (isTenantObject) {
+      resolvedTenantId = targetPayload.id;
+      resolvedTenantName = targetPayload.fullName || '';
+      const prof = targetPayload.profile || targetPayload.tenantProfile;
+      resolvedRoomId = prof?.roomId || '';
+      resolvedRoomNumber = String(prof?.roomNumber || prof?.room?.roomNumber || '');
+    } else if (isRoomObject) {
+      resolvedRoomId = targetPayload.id;
+      resolvedRoomNumber = String(targetPayload.roomNumber || '');
+      const activeTenant =
+        targetPayload.tenant ||
+        (targetPayload.tenantProfiles?.find((tp: any) => tp.status === 'ACTIVE') ||
+          targetPayload.tenantProfiles?.[0])?.user;
+      resolvedTenantId = activeTenant?.id || targetPayload.tenantProfiles?.[0]?.userId || '';
+      resolvedTenantName = activeTenant?.fullName || '';
+    }
+
+    // If target was a room without resolved tenant (or no target provided), match against rooms in state
+    if (!resolvedTenantId && resolvedRoomId) {
+      const roomInState = rooms.find((r) => r.id === resolvedRoomId);
+      if (roomInState) {
+        const activeTenant =
+          roomInState.tenant ||
+          (roomInState.tenantProfiles?.find((tp: any) => tp.status === 'ACTIVE') ||
+            roomInState.tenantProfiles?.[0])?.user;
+        resolvedTenantId = activeTenant?.id || roomInState.tenantProfiles?.[0]?.userId || '';
+        resolvedTenantName = activeTenant?.fullName || '';
+      }
+    }
+
+    // Fallback if still no tenant/room specified (e.g. clicked top header button)
     if (!resolvedTenantId) {
-      const occupiedWithDue = rooms.find((r) => {
-        const t = r.tenant || (r as any).tenantProfiles?.[0]?.user;
-        return r.status === 'OCCUPIED' && t;
+      const occupiedWithTenant = rooms.find((r) => {
+        const t =
+          r.tenant ||
+          (r.tenantProfiles?.find((tp: any) => tp.status === 'ACTIVE') || r.tenantProfiles?.[0])?.user;
+        return r.status === 'OCCUPIED' || Boolean(t);
       });
-      if (occupiedWithDue) {
-        const t = occupiedWithDue.tenant || (occupiedWithDue as any).tenantProfiles?.[0]?.user;
-        resolvedRoomId = occupiedWithDue.id;
-        resolvedRoomNumber = String(occupiedWithDue.roomNumber);
-        resolvedTenantId = t?.id || (occupiedWithDue as any).tenantProfiles?.[0]?.userId || '';
+      if (occupiedWithTenant) {
+        const t =
+          occupiedWithTenant.tenant ||
+          (occupiedWithTenant.tenantProfiles?.find((tp: any) => tp.status === 'ACTIVE') ||
+            occupiedWithTenant.tenantProfiles?.[0])?.user;
+        resolvedRoomId = occupiedWithTenant.id;
+        resolvedRoomNumber = String(occupiedWithTenant.roomNumber);
+        resolvedTenantId = t?.id || occupiedWithTenant.tenantProfiles?.[0]?.userId || '';
         resolvedTenantName = t?.fullName || '';
       }
     }
 
     const tBills = resolvedTenantId ? unpaidBills.filter((b) => b.tenantId === resolvedTenantId) : [];
     const totalDue = tBills.reduce((sum, b) => sum + (b.balanceDue || 0), 0);
+    const selectedBillId = targetBillId ? (tBills.find((b) => b.id === targetBillId)?.id || tBills[0]?.id || '') : (tBills[0]?.id || '');
 
     setCashForm({
       roomId: resolvedRoomId,
       tenantId: resolvedTenantId,
       tenantName: resolvedTenantName || 'Tenant',
       roomNumber: resolvedRoomNumber,
-      billId: tBills[0]?.id || '',
+      billId: selectedBillId,
       amount: totalDue > 0 ? String(totalDue) : '',
       maxDue: totalDue,
       paymentDateBS: today.nepaliFormatted,

@@ -133,6 +133,8 @@ export default function AdminTenantsPage() {
     setCreateForm((prev) => ({ ...prev, moveInDateBS: today.nepaliFormatted }));
   }, []);
 
+  useAutoSync(loadData, ['tenant', 'room', 'bill', 'payment', 'all']);
+
   const handleOpenAdvance = async (t: any) => {
     setSelectedTenant(t);
     setAdvanceModalOpen(true);
@@ -271,6 +273,9 @@ export default function AdminTenantsPage() {
         monthlyRent: Number(createForm.monthlyRent) || 0,
         internetEnabled: createForm.internetEnabled,
       });
+      broadcastSync('tenant');
+      broadcastSync('room');
+      broadcastSync('bill');
       setCreateModalOpen(false);
       setCreateForm({
         fullName: '',
@@ -329,6 +334,8 @@ export default function AdminTenantsPage() {
         citizenshipNumber: editForm.citizenshipNumber || undefined,
         notes: editForm.notes || undefined,
       });
+      broadcastSync('tenant');
+      broadcastSync('bill');
       setEditModalOpen(false);
       loadData();
       toast.success('Tenant details updated successfully.');
@@ -367,6 +374,9 @@ export default function AdminTenantsPage() {
       await api.put(`/tenants/${selectedTenant.id}/move-room`, {
         newRoomId: targetRoomId,
       });
+      broadcastSync('tenant');
+      broadcastSync('room');
+      broadcastSync('bill');
       setMoveRoomModalOpen(false);
       setTargetRoomId('');
       loadData();
@@ -394,6 +404,7 @@ export default function AdminTenantsPage() {
     try {
       setActionLoading(true);
       await api.post(`/documents/citizenship/${selectedTenant.id}`, formData);
+      broadcastSync('tenant');
       setDocModalOpen(false);
       setDocFile(null);
       loadData();
@@ -415,6 +426,9 @@ export default function AdminTenantsPage() {
     try {
       setActionLoading(true);
       await api.put(`/tenants/${tenantForMoveOut.id}/move-out`);
+      broadcastSync('tenant');
+      broadcastSync('room');
+      broadcastSync('bill');
       setMoveOutModalOpen(false);
       setTenantForMoveOut(null);
       loadData();

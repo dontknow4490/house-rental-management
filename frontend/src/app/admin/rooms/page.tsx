@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { formatCurrencyNPR } from '@/lib/nepali-date';
 import { useToast } from '@/lib/toast-context';
+import { useAutoSync, broadcastSync } from '@/lib/sync';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
@@ -61,6 +62,8 @@ export default function AdminRoomsPage() {
     loadRooms();
   }, []);
 
+  useAutoSync(loadRooms, ['room', 'tenant', 'bill', 'all']);
+
   const handleOpenEdit = (room: any) => {
     setEditingRoom(room);
     setNewRent(room.defaultRent);
@@ -72,6 +75,7 @@ export default function AdminRoomsPage() {
     setSaving(true);
     try {
       await api.put(`/rooms/${editingRoom.id}/rent`, { defaultRent: Number(newRent) });
+      broadcastSync('room');
       setEditingRoom(null);
       loadRooms();
       toast.success(`Default rent for Room ${editingRoom.roomNumber} updated successfully.`);
@@ -95,6 +99,7 @@ export default function AdminRoomsPage() {
         name: addRoomName.trim() ? addRoomName.trim() : `Room ${addRoomNumber}`,
         defaultRent: Number(addRoomRent),
       });
+      broadcastSync('room');
       toast.success(`Room ${addRoomNumber} created successfully!`);
       setIsAddModalOpen(false);
       setAddRoomNumber('');
@@ -113,6 +118,7 @@ export default function AdminRoomsPage() {
     setDeleting(true);
     try {
       await api.delete(`/rooms/${roomToDelete.id}`);
+      broadcastSync('room');
       toast.success(`Room ${roomToDelete.roomNumber} deleted successfully.`);
       setRoomToDelete(null);
       loadRooms();
